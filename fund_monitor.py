@@ -226,10 +226,7 @@ def pe_signal(pe: float, thresholds: dict) -> str:
 
 
 def update_market_callout(hs300_pe: float | None, a500_pe: float | None):
-    """
-    将市场温度写入数据库描述区域（标题下方，表格上方），保留用户原有策略说明。
-    Notion 全页数据库不支持在表格上方插入自由块，描述区是唯一可见位置。
-    """
+    """更新页面底部的市场温度 callout 块（全页数据库限制，只能在表格下方）"""
     today = date.today().strftime("%Y-%m-%d")
 
     pe_parts = []
@@ -238,37 +235,43 @@ def update_market_callout(hs300_pe: float | None, a500_pe: float | None):
         pe_parts.append(f"沪深300 PE {hs300_pe} [{signal}]")
     if a500_pe:
         signal = pe_signal(a500_pe, A500_THRESHOLDS)
-        pe_parts.append(f"中证A500 PE {a500_pe} [{signal}]")
-    pe_str = "  |  ".join(pe_parts) if pe_parts else "估值数据暂时不可用"
-    market_line = f"📊 市场温度 {today}：{pe_str}"
+        pe_parts.append(f"中证A500 PE {a500_pe} [{signal}]（参考中证500）")
+    content = f"市场温度 · {today}\n" + "\n".join(pe_parts) if pe_parts else f"市场温度 · {today}\n估值数据暂时不可用"
 
-    # 读取现有描述，保留非市场温度的行（用户自定义策略说明）
-    db_resp = requests.get(
-        f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
-        headers=NOTION_HEADERS, timeout=10
-    )
-    existing_desc = ""
-    if db_resp.status_code == 200:
-        desc_blocks = db_resp.json().get("description", [])
-        existing_desc = "".join(b.get("plain_text", "") for b in desc_blocks)
+    callout_payload = {
+        "callout": {
+            "rich_text": [{"type": "text", "text": {"content": content}}],
+            "icon": {"type": "emoji", "emoji": "📊"},
+            "color": "blue_background",
+        }
+    }
 
-    # 去掉上次写的市场温度行，保留用户写的其他内容
-    strategy_lines = [
-        line for line in existing_desc.splitlines()
-        if not line.startswith("📊 市场温度")
-    ]
-    strategy_text = "\n".join(strategy_lines).strip()
-    new_desc = f"{strategy_text}\n{market_line}".strip() if strategy_text else market_line
+    # 查找已有 callout 块
+    children_url = f"https://api.notion.com/v1/blocks/{NOTION_DATABASE_ID}/children"
+    resp = requests.get(children_url, headers=NOTION_HEADERS, timeout=10)
+    existing_id = None
+    if resp.status_code == 200:
+        for block in resp.json().get("results", []):
+            if block.get("type") == "callout":
+                existing_id = block["id"]
+                break
 
-    resp = requests.patch(
-        f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
-        headers=NOTION_HEADERS,
-        json={"description": [{"type": "text", "text": {"content": new_desc}}]},
-        timeout=10,
-    )
-    status = "OK" if resp.status_code == 200 else f"FAIL({resp.status_code})"
-    print(f"  [{status}] 市场温度已写入数据库描述")
-    print(f"       {market_line}")
+    if existing_id:
+        requests.patch(
+            f"https://api.notion.com/v1/blocks/{existing_id}",
+            headers=NOTION_HEADERS, json=callout_payload, timeout=10,
+        )
+        print(f"  [OK] 市场温度已更新（页面底部）")
+    else:
+        requests.patch(
+            children_url,
+            headers=NOTION_HEADERS,
+            json={"children": [{"object": "block", "type": "callout", **callout_payload}]},
+            timeout=10,
+        )
+        print(f"  [OK] 市场温度已创建（页面底部，需向下滚动查看）")
+
+    print(f"       {content.replace(chr(10), ' | ')}")
 
 
 # ── 再平衡逻辑 ─────────────────────────────────────────
