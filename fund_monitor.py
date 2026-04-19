@@ -154,19 +154,25 @@ def update_notion_fund(
     suggestion: str,
     rebalance_amount: float,
     nav_date: str,
+    target_pct: float = 0,
+    total_value: float = 0,
 ) -> bool:
     """更新单只基金在 Notion 中的数据"""
     url = f"https://api.notion.com/v1/pages/{page_id}"
-    now_str = f"{nav_date} 更新于 {datetime.now().strftime('%H:%M')}"
+    now_str = f"{nav_date} {datetime.now().strftime('%H:%M')}"
 
     # 今日涨跌幅: Notion percent 格式存储小数（0.0153 显示为 1.53%）
     change_rate_stored = change_rate / 100
+
+    # 目标差值 = 现有资产 - 目标金额（负值=低配，正值=超配）
+    target_deviation = round(current_value - (target_pct * total_value), 2)
 
     props = {
         "当前净值": {"number": round(nav, 4)},
         "今日涨跌幅": {"number": change_rate_stored},
         "现有资产": {"number": round(current_value, 2)},
         "今日盈亏": {"number": round(daily_pnl, 2)},
+        "目标差值": {"number": target_deviation},
         "操作建议": {"select": {"name": suggestion}},
         "调仓金额": {"number": round(abs(rebalance_amount), 2)},
         "更新时间": {"rich_text": [{"text": {"content": now_str}}]},
@@ -310,13 +316,10 @@ def main():
     # 3. 计算再平衡建议
     funds = calculate_rebalancing(funds, total_value)
 
-    # 4. 更新 Notion（无代码的基金跳过净值写入，保留现有资产不动）
+    # 4. 更新 Notion
     print("正在更新 Notion...")
     for fund in funds:
-        if not fund.get("fund_code"):
-            print(f"  [跳过] {fund['fund_name']}（无代码）")
-            continue
-        if fund.get("nav", 0) == 0:
+        if fund.get("nav", 0) == 0 and fund.get("fund_code"):
             continue
         success = update_notion_fund(
             page_id=fund["page_id"],
@@ -327,6 +330,8 @@ def main():
             suggestion=fund["suggestion"],
             rebalance_amount=fund["rebalance_amount"],
             nav_date=fund.get("nav_date", str(date.today())),
+            target_pct=fund.get("target_pct", 0),
+            total_value=total_value,
         )
         status = "OK" if success else "FAIL"
         print(f"  [{status}] {fund['fund_name']} ({fund['fund_code']})")
