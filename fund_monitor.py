@@ -178,7 +178,6 @@ def update_notion_fund(
         "配置比例": {"number": round(allocation_ratio, 4)},
         "目标差值": {"number": target_deviation},
         "操作建议": {"select": {"name": suggestion}},
-        "调仓金额": {"number": round(abs(rebalance_amount), 2)},
         "更新时间": {"rich_text": [{"text": {"content": now_str}}]},
     }
 
