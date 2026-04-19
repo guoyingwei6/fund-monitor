@@ -185,6 +185,102 @@ def update_notion_fund(
     return resp.status_code == 200
 
 
+# ── 指数估值 ───────────────────────────────────────────
+
+# 沪深300 PE 参考阈值（历史中位数约13）
+HS300_THRESHOLDS = {"low": 12, "high": 18}
+# 中证A500 PE 参考阈值（对标中证500，历史中位数约27）
+A500_THRESHOLDS = {"low": 20, "high": 35}
+
+
+def fetch_index_pe(index_name: str) -> float | None:
+    """
+    用 akshare 获取指数最新 PE(TTM)
+    index_name: "沪深300" 或 "中证500"
+    """
+    try:
+        import akshare as ak
+        df = ak.stock_index_pe_lg(symbol=index_name)
+        if df.empty:
+            return None
+        latest = df.iloc[-1]
+        # 优先用滚动市盈率(TTM)，兼容不同版本列名
+        for col in ["滚动市盈率", "等权滚动市盈率", "整体法市盈率", df.columns[-1]]:
+            if col in df.columns:
+                val = latest[col]
+                if val and str(val) not in ("-", "nan", "None"):
+                    return round(float(val), 2)
+    except Exception as e:
+        print(f"  [警告] 获取 {index_name} PE失败: {e}")
+    return None
+
+
+def pe_signal(pe: float, thresholds: dict) -> str:
+    """根据 PE 值返回估值信号"""
+    if pe <= thresholds["low"]:
+        return "低估"
+    elif pe >= thresholds["high"]:
+        return "高估"
+    else:
+        return "正常"
+
+
+def update_market_callout(hs300_pe: float | None, a500_pe: float | None):
+    """在 Notion 数据库页面顶部更新/创建市场温度 callout 块"""
+    today = date.today().strftime("%Y-%m-%d")
+
+    lines = [f"市场温度 · {today}"]
+    if hs300_pe:
+        signal = pe_signal(hs300_pe, HS300_THRESHOLDS)
+        lines.append(f"沪深300  PE {hs300_pe}  [{signal}]")
+    if a500_pe:
+        signal = pe_signal(a500_pe, A500_THRESHOLDS)
+        lines.append(f"中证A500 PE {a500_pe}  [{signal}]（参考中证500）")
+    if not hs300_pe and not a500_pe:
+        lines.append("估值数据暂时不可用")
+
+    callout_text = "\n".join(lines)
+
+    # 查找已有的 callout 块
+    blocks_url = f"https://api.notion.com/v1/blocks/{NOTION_DATABASE_ID}/children"
+    resp = requests.get(blocks_url, headers=NOTION_HEADERS, timeout=10)
+    existing_callout_id = None
+    if resp.status_code == 200:
+        for block in resp.json().get("results", []):
+            if block.get("type") == "callout":
+                existing_callout_id = block["id"]
+                break
+
+    callout_body = {
+        "callout": {
+            "rich_text": [{"type": "text", "text": {"content": callout_text}}],
+            "icon": {"type": "emoji", "emoji": "📊"},
+            "color": "blue_background",
+        }
+    }
+
+    if existing_callout_id:
+        # 更新已有块
+        requests.patch(
+            f"https://api.notion.com/v1/blocks/{existing_callout_id}",
+            headers=NOTION_HEADERS,
+            json=callout_body,
+            timeout=10,
+        )
+        print("  [OK] 市场温度 callout 已更新")
+    else:
+        # 在页面顶部创建新块（children 接口追加到末尾，Notion 暂不支持插入顶部）
+        requests.patch(
+            blocks_url,
+            headers=NOTION_HEADERS,
+            json={"children": [{"object": "block", "type": "callout", **callout_body}]},
+            timeout=10,
+        )
+        print("  [OK] 市场温度 callout 已创建")
+
+    print(f"       {callout_text.replace(chr(10), ' | ')}")
+
+
 # ── 再平衡逻辑 ─────────────────────────────────────────
 
 def calculate_rebalancing(funds: list, total_value: float) -> list:
@@ -340,7 +436,13 @@ def main():
         print(f"  [{status}] {fund['fund_name']} ({fund['fund_code']})")
         time.sleep(0.3)
 
-    # 5. 打印汇总
+    # 5. 获取指数估值并更新 callout
+    print("正在获取指数估值...")
+    hs300_pe = fetch_index_pe("沪深300")
+    a500_pe = fetch_index_pe("中证500")     # 中证A500 暂用中证500 PE 作参考
+    update_market_callout(hs300_pe, a500_pe)
+
+    # 6. 打印汇总
     print_summary(funds, total_value, total_daily_pnl)
 
 
