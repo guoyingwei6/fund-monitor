@@ -1,0 +1,28 @@
+name: 每日基金净值更新
+
+on:
+  schedule:
+    # 每个工作日 20:00 CST (UTC+8) = 12:00 UTC 执行
+    # 此时天天基金当日净值已确认（T日15:00收盘，约18:00入库）
+    - cron: "0 12 * * 1-5"
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 运行基金监控脚本
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          REBALANCE_THRESHOLD: "0.05"
+        run: python fund_monitor.py
