@@ -250,7 +250,9 @@ def update_market_callout(hs300_pe: float | None, a500_pe: float | None):
             b.get("plain_text", "") for b in db_resp.json().get("description", [])
         )
 
-    strategy_lines = [l for l in existing_desc.splitlines() if not l.startswith("📊 市场温度")]
+    # 过滤所有市场温度相关行（兼容旧格式）
+    skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证A500", "沪深300 PE", "中证A500 PE")
+    strategy_lines = [l for l in existing_desc.splitlines() if not any(l.startswith(k) for k in skip_keywords)]
     strategy_text = "\n".join(strategy_lines).strip()
     new_desc = f"{strategy_text}\n{market_line}" if strategy_text else market_line
 
