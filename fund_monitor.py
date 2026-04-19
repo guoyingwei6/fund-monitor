@@ -167,11 +167,15 @@ def update_notion_fund(
     # 目标差值 = 现有资产 - 目标金额（负值=低配，正值=超配）
     target_deviation = round(current_value - (target_pct * total_value), 2)
 
+    # 配置比例: Notion percent 格式存储小数（0.30 显示为 30%）
+    allocation_ratio = (current_value / total_value) if total_value > 0 else 0
+
     props = {
         "当前净值": {"number": round(nav, 4)},
         "今日涨跌幅": {"number": change_rate_stored},
         "现有资产": {"number": round(current_value, 2)},
         "今日盈亏": {"number": round(daily_pnl, 2)},
+        "配置比例": {"number": round(allocation_ratio, 4)},
         "目标差值": {"number": target_deviation},
         "操作建议": {"select": {"name": suggestion}},
         "调仓金额": {"number": round(abs(rebalance_amount), 2)},
