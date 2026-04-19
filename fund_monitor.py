@@ -216,13 +216,13 @@ def fetch_index_pe(index_name: str) -> float | None:
 
 
 def pe_signal(pe: float, thresholds: dict) -> str:
-    """根据 PE 值返回估值信号"""
+    """根据 PE 值返回估值信号（含 emoji）"""
     if pe <= thresholds["low"]:
-        return "低估"
+        return "🟢 低估"
     elif pe >= thresholds["high"]:
-        return "高估"
+        return "🔴 高估"
     else:
-        return "正常"
+        return "🟡 正常"
 
 
 def update_market_callout(hs300_pe: float | None, a500_pe: float | None):
@@ -232,12 +232,12 @@ def update_market_callout(hs300_pe: float | None, a500_pe: float | None):
     pe_parts = []
     if hs300_pe:
         signal = pe_signal(hs300_pe, HS300_THRESHOLDS)
-        pe_parts.append(f"沪深300 PE {hs300_pe} [{signal}]")
+        pe_parts.append(f"🏦 沪深300  PE {hs300_pe}  {signal}")
     if a500_pe:
         signal = pe_signal(a500_pe, A500_THRESHOLDS)
-        pe_parts.append(f"中证A500 PE {a500_pe} [{signal}]")
-    pe_str = "  |  ".join(pe_parts) if pe_parts else "估值数据暂时不可用"
-    market_line = f"📊 市场温度 {today}：{pe_str}"
+        pe_parts.append(f"📈 中证A500  PE {a500_pe}  {signal}（参考中证500）")
+    pe_str = "\n".join(pe_parts) if pe_parts else "估值数据暂时不可用"
+    market_line = f"📊 市场温度 {today}：\n{pe_str}"
 
     # 读取现有描述，去掉上次写的市场温度行，保留其余内容
     db_resp = requests.get(
