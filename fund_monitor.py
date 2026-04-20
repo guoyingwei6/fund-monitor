@@ -190,8 +190,9 @@ def update_notion_fund(
 # 沪深300 参考阈值（历史数据）
 HS300_PE_THRESHOLDS = {"low": 12, "high": 18}    # PE: <12 低估, >18 高估
 HS300_PB_THRESHOLDS = {"low": 1.2, "high": 1.8}  # PB: <1.2 低估, >1.8 高估
-# 中证A500 PE 参考阈值（对标中证500，中小盘溢价更高）
+# 中证A500 PE/PB 参考阈值（对标中证500，中小盘溢价更高）
 A500_PE_THRESHOLDS = {"low": 20, "high": 35}
+A500_PB_THRESHOLDS = {"low": 2.0, "high": 3.5}   # PB: <2.0 低估, >3.5 高估
 # 股债利差阈值（沪深300盈利收益率 - 10年国债收益率，单位%）
 # >5% 股票便宜，<2% 股票贵
 SPREAD_THRESHOLDS = {"low": 2.0, "high": 5.0}
@@ -300,7 +301,7 @@ def market_overall_signal(pe: float | None, pb: float | None, spread: float | No
         return "💡 综合建议：🔴 多项高估，建议减少股票增持债券"
 
 
-def update_market_callout(hs300_pe, hs300_pb, a500_pe, bond_yield):
+def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
     """将市场温度追加到数据库描述区（标题下方，表格上方）"""
     today = date.today().strftime("%Y-%m-%d")
 
@@ -314,9 +315,15 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, bond_yield):
             parts.append(f"PB {hs300_pb}  {_signal(hs300_pb, HS300_PB_THRESHOLDS['low'], HS300_PB_THRESHOLDS['high'])}")
         lines.append("  ".join(parts))
     # 中证A500
-    if a500_pe:
-        sig = _signal(a500_pe, A500_PE_THRESHOLDS["low"], A500_PE_THRESHOLDS["high"])
-        lines.append(f"📈 中证A500  PE {a500_pe}  {sig}（参考中证500）")
+    if a500_pe or a500_pb:
+        parts = ["📈 中证A500（参考中证500）"]
+        if a500_pe:
+            sig = _signal(a500_pe, A500_PE_THRESHOLDS["low"], A500_PE_THRESHOLDS["high"])
+            parts.append(f"PE {a500_pe}  {sig}")
+        if a500_pb:
+            sig = _signal(a500_pb, A500_PB_THRESHOLDS["low"], A500_PB_THRESHOLDS["high"])
+            parts.append(f"PB {a500_pb}  {sig}")
+        lines.append("  ".join(parts))
     # 股债利差
     spread = None
     if hs300_pe and bond_yield:
@@ -521,8 +528,9 @@ def main():
     hs300_pe = fetch_index_pe("沪深300")
     hs300_pb = fetch_index_pb("沪深300")
     a500_pe = fetch_index_pe("中证500")     # 中证A500 暂用中证500 PE 作参考
+    a500_pb = fetch_index_pb("中证500")
     bond_yield = fetch_bond_yield()
-    update_market_callout(hs300_pe, hs300_pb, a500_pe, bond_yield)
+    update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield)
 
     # 6. 打印汇总
     print_summary(funds, total_value, total_daily_pnl)
