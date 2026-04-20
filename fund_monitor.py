@@ -308,34 +308,34 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
     lines = []
     # 沪深300
     if hs300_pe or hs300_pb:
-        parts = ["🏦 沪深300"]
+        parts = []
         if hs300_pe:
             parts.append(f"PE {hs300_pe}  {_signal(hs300_pe, HS300_PE_THRESHOLDS['low'], HS300_PE_THRESHOLDS['high'])}")
         if hs300_pb:
             parts.append(f"PB {hs300_pb}  {_signal(hs300_pb, HS300_PB_THRESHOLDS['low'], HS300_PB_THRESHOLDS['high'])}")
-        lines.append("  ".join(parts))
+        lines.append("🏦 沪深300  " + " | ".join(parts))
     # 中证A500
     if a500_pe or a500_pb:
-        parts = ["📈 中证A500（参考中证500）"]
+        parts = []
         if a500_pe:
             sig = _signal(a500_pe, A500_PE_THRESHOLDS["low"], A500_PE_THRESHOLDS["high"])
             parts.append(f"PE {a500_pe}  {sig}")
         if a500_pb:
             sig = _signal(a500_pb, A500_PB_THRESHOLDS["low"], A500_PB_THRESHOLDS["high"])
             parts.append(f"PB {a500_pb}  {sig}")
-        lines.append("  ".join(parts))
+        lines.append("📈 中证A500  " + " | ".join(parts))
     # 股债利差
     spread = None
     if hs300_pe and bond_yield:
         spread = round((1 / hs300_pe) * 100 - bond_yield, 2)
         sig = _signal(spread, SPREAD_THRESHOLDS["low"], SPREAD_THRESHOLDS["high"],
                       low_label="🔴 股票偏贵", mid_label="🟡 正常", high_label="🟢 股票便宜")
-        lines.append(f"📉 股债利差  {spread}%  {sig}（国债 {bond_yield}%）")
+        lines.append(f"📉 股债利差  {spread}%  {sig}")
     # 综合建议
     lines.append(market_overall_signal(hs300_pe, hs300_pb, spread))
 
     market_text = "\n".join(lines) if lines else "估值数据暂时不可用"
-    market_line = f"📊 市场温度 {today}：\n{market_text}"
+    market_line = f"———————————————————————————\n📊 市场温度 {today}：\n{market_text}"
 
     # 读取现有描述，去掉上次写的市场温度行，保留其余内容
     db_resp = requests.get(
