@@ -1,0 +1,21 @@
+name: Keepalive
+
+on:
+  schedule:
+    - cron: "0 12 1 * *"  # 每月1日 20:00 CST
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update keepalive timestamp
+        run: |
+          echo "Last keepalive: $(date -u '+%Y-%m-%d')" > .keepalive
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .keepalive
+          git commit -m "chore: keepalive $(date -u '+%Y-%m')"
+          git push
