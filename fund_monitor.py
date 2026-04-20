@@ -306,29 +306,29 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
     today = date.today().strftime("%Y-%m-%d")
 
     lines = []
-    # PE 行：两个指数放一行
+    # PE 行：两个指数放一行，各自带阈值
     pe_parts = []
     if hs300_pe:
-        pe_parts.append(f"沪深300 {hs300_pe} {_signal(hs300_pe, HS300_PE_THRESHOLDS['low'], HS300_PE_THRESHOLDS['high'])}")
+        pe_parts.append(f"沪深300（低估<{HS300_PE_THRESHOLDS['low']}<正常<{HS300_PE_THRESHOLDS['high']}<高估） {hs300_pe} {_signal(hs300_pe, HS300_PE_THRESHOLDS['low'], HS300_PE_THRESHOLDS['high'])}")
     if a500_pe:
-        pe_parts.append(f"中证500 {a500_pe} {_signal(a500_pe, A500_PE_THRESHOLDS['low'], A500_PE_THRESHOLDS['high'])}")
+        pe_parts.append(f"中证500（低估<{A500_PE_THRESHOLDS['low']}<正常<{A500_PE_THRESHOLDS['high']}<高估） {a500_pe} {_signal(a500_pe, A500_PE_THRESHOLDS['low'], A500_PE_THRESHOLDS['high'])}")
     if pe_parts:
-        lines.append(f"市盈率PE（低估<{HS300_PE_THRESHOLDS['low']} 正常 高估>{HS300_PE_THRESHOLDS['high']}）：" + " | ".join(pe_parts))
-    # PB 行：两个指数放一行
+        lines.append("市盈率PE：" + " | ".join(pe_parts))
+    # PB 行：两个指数放一行，各自带阈值
     pb_parts = []
     if hs300_pb:
-        pb_parts.append(f"沪深300 {hs300_pb} {_signal(hs300_pb, HS300_PB_THRESHOLDS['low'], HS300_PB_THRESHOLDS['high'])}")
+        pb_parts.append(f"沪深300（低估<{HS300_PB_THRESHOLDS['low']}<正常<{HS300_PB_THRESHOLDS['high']}<高估） {hs300_pb} {_signal(hs300_pb, HS300_PB_THRESHOLDS['low'], HS300_PB_THRESHOLDS['high'])}")
     if a500_pb:
-        pb_parts.append(f"中证500 {a500_pb} {_signal(a500_pb, A500_PB_THRESHOLDS['low'], A500_PB_THRESHOLDS['high'])}")
+        pb_parts.append(f"中证500（低估<{A500_PB_THRESHOLDS['low']}<正常<{A500_PB_THRESHOLDS['high']}<高估） {a500_pb} {_signal(a500_pb, A500_PB_THRESHOLDS['low'], A500_PB_THRESHOLDS['high'])}")
     if pb_parts:
-        lines.append(f"市净率PB（低估<{HS300_PB_THRESHOLDS['low']} 正常 高估>{HS300_PB_THRESHOLDS['high']}）：" + " | ".join(pb_parts))
+        lines.append("市净率PB：" + " | ".join(pb_parts))
     # 股债利差
     spread = None
     if hs300_pe and bond_yield:
         spread = round((1 / hs300_pe) * 100 - bond_yield, 2)
         sig = _signal(spread, SPREAD_THRESHOLDS["low"], SPREAD_THRESHOLDS["high"],
                       low_label="🔴 股票偏贵", mid_label="🟡 正常", high_label="🟢 股票便宜")
-        lines.append(f"📉 股债利差  {spread}%  {sig}")
+        lines.append(f"📉 股债利差：{spread}%  {sig}")
     # 综合建议
     lines.append(market_overall_signal(hs300_pe, hs300_pb, spread))
 
