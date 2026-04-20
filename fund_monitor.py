@@ -313,7 +313,7 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
     if a500_pe:
         pe_parts.append(f"中证500 {a500_pe} {_signal(a500_pe, A500_PE_THRESHOLDS['low'], A500_PE_THRESHOLDS['high'])}")
     if pe_parts:
-        lines.append("市盈率PE：" + " | ".join(pe_parts))
+        lines.append("💹 市盈率PE：" + " | ".join(pe_parts))
     # PB 行：两个指数放一行，各自带阈值
     pb_parts = []
     if hs300_pb:
@@ -321,7 +321,7 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
     if a500_pb:
         pb_parts.append(f"中证500 {a500_pb} {_signal(a500_pb, A500_PB_THRESHOLDS['low'], A500_PB_THRESHOLDS['high'])}")
     if pb_parts:
-        lines.append("市净率PB：" + " | ".join(pb_parts))
+        lines.append("🏛 市净率PB：" + " | ".join(pb_parts))
     # 股债利差
     spread = None
     if hs300_pe and bond_yield:
@@ -347,7 +347,7 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
         )
 
     skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证A500", "📈 中证500", "📉 股债利差", "💡 综合建议",
-                     "沪深300 PE", "中证A500 PE", "———", "市盈率PE", "市净率PB")
+                     "沪深300 PE", "中证A500 PE", "———", "市盈率PE", "市净率PB", "💹 市盈率PE", "🏛 市净率PB")
     strategy_lines = [
         l for l in existing_desc.splitlines()
         if not any(l.startswith(k) for k in skip_keywords)
