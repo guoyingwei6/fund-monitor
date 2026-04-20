@@ -348,8 +348,8 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
             b.get("plain_text", "") for b in db_resp.json().get("description", [])
         )
 
-    skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证500", "📉 股债利差", "💡 综合建议",
-                     "沪深300 PE", "中证A500 PE")
+    skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证A500", "📈 中证500", "📉 股债利差", "💡 综合建议",
+                     "沪深300 PE", "中证A500 PE", "———")
     strategy_lines = [
         l for l in existing_desc.splitlines()
         if not any(l.startswith(k) for k in skip_keywords)
