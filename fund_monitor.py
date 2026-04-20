@@ -187,57 +187,148 @@ def update_notion_fund(
 
 # ── 指数估值 ───────────────────────────────────────────
 
-# 沪深300 PE 参考阈值（历史中位数约13）
-HS300_THRESHOLDS = {"low": 12, "high": 18}
-# 中证A500 PE 参考阈值（对标中证500，历史中位数约27）
-A500_THRESHOLDS = {"low": 20, "high": 35}
+# 沪深300 参考阈值（历史数据）
+HS300_PE_THRESHOLDS = {"low": 12, "high": 18}    # PE: <12 低估, >18 高估
+HS300_PB_THRESHOLDS = {"low": 1.2, "high": 1.8}  # PB: <1.2 低估, >1.8 高估
+# 中证A500 PE 参考阈值（对标中证500，中小盘溢价更高）
+A500_PE_THRESHOLDS = {"low": 20, "high": 35}
+# 股债利差阈值（沪深300盈利收益率 - 10年国债收益率，单位%）
+# >5% 股票便宜，<2% 股票贵
+SPREAD_THRESHOLDS = {"low": 2.0, "high": 5.0}
 
 
 def fetch_index_pe(index_name: str) -> float | None:
-    """
-    用 akshare 获取指数最新 PE(TTM)
-    index_name: "沪深300" 或 "中证500"
-    """
+    """获取指数最新 PE(TTM)"""
     try:
         import akshare as ak
         df = ak.stock_index_pe_lg(symbol=index_name)
         if df.empty:
             return None
         latest = df.iloc[-1]
-        # 优先用滚动市盈率(TTM)，兼容不同版本列名
-        for col in ["滚动市盈率", "等权滚动市盈率", "整体法市盈率", df.columns[-1]]:
+        for col in ["滚动市盈率", "等权滚动市盈率", "整体法市盈率"]:
             if col in df.columns:
                 val = latest[col]
                 if val and str(val) not in ("-", "nan", "None"):
                     return round(float(val), 2)
     except Exception as e:
-        print(f"  [警告] 获取 {index_name} PE失败: {e}")
+        print(f"  [警告] 获取 {index_name} PE 失败: {e}")
     return None
 
 
-def pe_signal(pe: float, thresholds: dict) -> str:
-    """根据 PE 值返回估值信号（含 emoji）"""
-    if pe <= thresholds["low"]:
-        return "🟢 低估"
-    elif pe >= thresholds["high"]:
-        return "🔴 高估"
+def fetch_index_pb(index_name: str) -> float | None:
+    """获取指数最新 PB（市净率）"""
+    try:
+        import akshare as ak
+        df = ak.stock_index_pb_lg(symbol=index_name)
+        if df.empty:
+            return None
+        latest = df.iloc[-1]
+        for col in ["市净率", "等权市净率"]:
+            if col in df.columns:
+                val = latest[col]
+                if val and str(val) not in ("-", "nan", "None"):
+                    return round(float(val), 2)
+    except Exception as e:
+        print(f"  [警告] 获取 {index_name} PB 失败: {e}")
+    return None
+
+
+def fetch_bond_yield() -> float | None:
+    """获取10年期中国国债收益率（%）"""
+    try:
+        import akshare as ak
+        from datetime import timedelta
+        start = (date.today() - timedelta(days=30)).strftime("%Y%m%d")
+        df = ak.bond_zh_us_rate(start_date=start)
+        if df.empty:
+            return None
+        df = df.sort_values("日期", ascending=False)
+        for _, row in df.iterrows():
+            val = row.get("中国国债收益率10年")
+            if val and str(val) not in ("-", "nan", "None"):
+                try:
+                    return round(float(val), 4)
+                except (ValueError, TypeError):
+                    continue
+    except Exception as e:
+        print(f"  [警告] 获取国债收益率失败: {e}")
+    return None
+
+
+def _signal(val: float, low: float, high: float,
+            low_label="🟢 低估", mid_label="🟡 正常", high_label="🔴 高估") -> str:
+    if val <= low:
+        return low_label
+    elif val >= high:
+        return high_label
+    return mid_label
+
+
+def market_overall_signal(pe: float | None, pb: float | None, spread: float | None) -> str:
+    """综合 PE、PB、股债利差给出市场操作建议（基于沪深300）"""
+    score = 0
+    valid = 0
+    if pe is not None:
+        valid += 1
+        if pe <= HS300_PE_THRESHOLDS["low"]:
+            score += 1
+        elif pe >= HS300_PE_THRESHOLDS["high"]:
+            score -= 1
+    if pb is not None:
+        valid += 1
+        if pb <= HS300_PB_THRESHOLDS["low"]:
+            score += 1
+        elif pb >= HS300_PB_THRESHOLDS["high"]:
+            score -= 1
+    if spread is not None:
+        valid += 1
+        if spread >= SPREAD_THRESHOLDS["high"]:
+            score += 1
+        elif spread <= SPREAD_THRESHOLDS["low"]:
+            score -= 1
+    if valid == 0:
+        return "💡 综合建议：数据不足，暂无建议"
+    if score >= 2:
+        return "💡 综合建议：🟢 多项低估，适合加大股票配置"
+    elif score == 1:
+        return "💡 综合建议：🟢 偏低估，可适当增加股票"
+    elif score == 0:
+        return "💡 综合建议：🟡 估值正常，维持当前配置"
+    elif score == -1:
+        return "💡 综合建议：🔴 偏高估，适当降低股票配置"
     else:
-        return "🟡 正常"
+        return "💡 综合建议：🔴 多项高估，建议减少股票增持债券"
 
 
-def update_market_callout(hs300_pe: float | None, a500_pe: float | None):
+def update_market_callout(hs300_pe, hs300_pb, a500_pe, bond_yield):
     """将市场温度追加到数据库描述区（标题下方，表格上方）"""
     today = date.today().strftime("%Y-%m-%d")
 
-    pe_parts = []
-    if hs300_pe:
-        signal = pe_signal(hs300_pe, HS300_THRESHOLDS)
-        pe_parts.append(f"🏦 沪深300  PE {hs300_pe}  {signal}")
+    lines = []
+    # 沪深300
+    if hs300_pe or hs300_pb:
+        parts = ["🏦 沪深300"]
+        if hs300_pe:
+            parts.append(f"PE {hs300_pe}  {_signal(hs300_pe, HS300_PE_THRESHOLDS['low'], HS300_PE_THRESHOLDS['high'])}")
+        if hs300_pb:
+            parts.append(f"PB {hs300_pb}  {_signal(hs300_pb, HS300_PB_THRESHOLDS['low'], HS300_PB_THRESHOLDS['high'])}")
+        lines.append("  ".join(parts))
+    # 中证A500
     if a500_pe:
-        signal = pe_signal(a500_pe, A500_THRESHOLDS)
-        pe_parts.append(f"📈 中证A500  PE {a500_pe}  {signal}（参考中证500）")
-    pe_str = "\n".join(pe_parts) if pe_parts else "估值数据暂时不可用"
-    market_line = f"📊 市场温度 {today}：\n{pe_str}"
+        sig = _signal(a500_pe, A500_PE_THRESHOLDS["low"], A500_PE_THRESHOLDS["high"])
+        lines.append(f"📈 中证A500  PE {a500_pe}  {sig}（参考中证500）")
+    # 股债利差
+    spread = None
+    if hs300_pe and bond_yield:
+        spread = round((1 / hs300_pe) * 100 - bond_yield, 2)
+        sig = _signal(spread, SPREAD_THRESHOLDS["low"], SPREAD_THRESHOLDS["high"],
+                      low_label="🔴 股票偏贵", mid_label="🟡 正常", high_label="🟢 股票便宜")
+        lines.append(f"📉 股债利差  {spread}%  {sig}（国债 {bond_yield}%）")
+    # 综合建议
+    lines.append(market_overall_signal(hs300_pe, hs300_pb, spread))
+
+    market_text = "\n".join(lines) if lines else "估值数据暂时不可用"
+    market_line = f"📊 市场温度 {today}：\n{market_text}"
 
     # 读取现有描述，去掉上次写的市场温度行，保留其余内容
     db_resp = requests.get(
@@ -250,9 +341,12 @@ def update_market_callout(hs300_pe: float | None, a500_pe: float | None):
             b.get("plain_text", "") for b in db_resp.json().get("description", [])
         )
 
-    # 过滤所有市场温度相关行（兼容旧格式）
-    skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证A500", "沪深300 PE", "中证A500 PE")
-    strategy_lines = [l for l in existing_desc.splitlines() if not any(l.startswith(k) for k in skip_keywords)]
+    skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证A500", "📉 股债利差", "💡 综合建议",
+                     "沪深300 PE", "中证A500 PE")
+    strategy_lines = [
+        l for l in existing_desc.splitlines()
+        if not any(l.startswith(k) for k in skip_keywords)
+    ]
     strategy_text = "\n".join(strategy_lines).strip()
     new_desc = f"{strategy_text}\n{market_line}" if strategy_text else market_line
 
@@ -425,8 +519,10 @@ def main():
     # 5. 获取指数估值并更新 callout
     print("正在获取指数估值...")
     hs300_pe = fetch_index_pe("沪深300")
+    hs300_pb = fetch_index_pb("沪深300")
     a500_pe = fetch_index_pe("中证500")     # 中证A500 暂用中证500 PE 作参考
-    update_market_callout(hs300_pe, a500_pe)
+    bond_yield = fetch_bond_yield()
+    update_market_callout(hs300_pe, hs300_pb, a500_pe, bond_yield)
 
     # 6. 打印汇总
     print_summary(funds, total_value, total_daily_pnl)
