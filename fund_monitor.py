@@ -323,7 +323,7 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
         if a500_pb:
             sig = _signal(a500_pb, A500_PB_THRESHOLDS["low"], A500_PB_THRESHOLDS["high"])
             parts.append(f"PB {a500_pb}  {sig}")
-        lines.append("📈 中证A500  " + " | ".join(parts))
+        lines.append("📈 中证500  " + " | ".join(parts))
     # 股债利差
     spread = None
     if hs300_pe and bond_yield:
@@ -348,7 +348,7 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
             b.get("plain_text", "") for b in db_resp.json().get("description", [])
         )
 
-    skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证A500", "📉 股债利差", "💡 综合建议",
+    skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证500", "📉 股债利差", "💡 综合建议",
                      "沪深300 PE", "中证A500 PE")
     strategy_lines = [
         l for l in existing_desc.splitlines()
