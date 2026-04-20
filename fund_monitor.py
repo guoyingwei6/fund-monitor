@@ -306,24 +306,22 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
     today = date.today().strftime("%Y-%m-%d")
 
     lines = []
-    # 沪深300
-    if hs300_pe or hs300_pb:
-        parts = []
-        if hs300_pe:
-            parts.append(f"PE {hs300_pe}  {_signal(hs300_pe, HS300_PE_THRESHOLDS['low'], HS300_PE_THRESHOLDS['high'])}")
-        if hs300_pb:
-            parts.append(f"PB {hs300_pb}  {_signal(hs300_pb, HS300_PB_THRESHOLDS['low'], HS300_PB_THRESHOLDS['high'])}")
-        lines.append("🏦 沪深300  " + " | ".join(parts))
-    # 中证A500
-    if a500_pe or a500_pb:
-        parts = []
-        if a500_pe:
-            sig = _signal(a500_pe, A500_PE_THRESHOLDS["low"], A500_PE_THRESHOLDS["high"])
-            parts.append(f"PE {a500_pe}  {sig}")
-        if a500_pb:
-            sig = _signal(a500_pb, A500_PB_THRESHOLDS["low"], A500_PB_THRESHOLDS["high"])
-            parts.append(f"PB {a500_pb}  {sig}")
-        lines.append("📈 中证500  " + " | ".join(parts))
+    # PE 行：两个指数放一行
+    pe_parts = []
+    if hs300_pe:
+        pe_parts.append(f"沪深300 {hs300_pe} {_signal(hs300_pe, HS300_PE_THRESHOLDS['low'], HS300_PE_THRESHOLDS['high'])}")
+    if a500_pe:
+        pe_parts.append(f"中证500 {a500_pe} {_signal(a500_pe, A500_PE_THRESHOLDS['low'], A500_PE_THRESHOLDS['high'])}")
+    if pe_parts:
+        lines.append(f"市盈率PE（低估<{HS300_PE_THRESHOLDS['low']} 正常 高估>{HS300_PE_THRESHOLDS['high']}）：" + " | ".join(pe_parts))
+    # PB 行：两个指数放一行
+    pb_parts = []
+    if hs300_pb:
+        pb_parts.append(f"沪深300 {hs300_pb} {_signal(hs300_pb, HS300_PB_THRESHOLDS['low'], HS300_PB_THRESHOLDS['high'])}")
+    if a500_pb:
+        pb_parts.append(f"中证500 {a500_pb} {_signal(a500_pb, A500_PB_THRESHOLDS['low'], A500_PB_THRESHOLDS['high'])}")
+    if pb_parts:
+        lines.append(f"市净率PB（低估<{HS300_PB_THRESHOLDS['low']} 正常 高估>{HS300_PB_THRESHOLDS['high']}）：" + " | ".join(pb_parts))
     # 股债利差
     spread = None
     if hs300_pe and bond_yield:
