@@ -130,16 +130,12 @@ def get_notion_funds() -> list:
         if not fund_name:
             continue
 
-        # 读取已有的现有资产（用于无代码基金，如余利宝）
-        existing_value = get_number("现有资产")
-
         funds.append({
             "page_id": page["id"],
             "fund_code": fund_code,
             "fund_name": fund_name,
             "shares": shares,
             "target_pct": target_pct,
-            "existing_value": existing_value,
         })
 
     return funds
@@ -464,18 +460,11 @@ def main():
         return
     print(f"读取到 {len(funds)} 只基金")
 
-    # 2. 逐一获取净值（无代码的现金类基金直接用 Notion 现有资产）
+    # 2. 逐一获取净值
     for fund in funds:
         code = fund["fund_code"]
         if not code:
-            # 余利宝等货币基金：净值固定≈1，直接用已有市值，不更新
-            fund["nav"] = 1.0
-            fund["acc_nav"] = 1.0
-            fund["change_rate"] = 0.0
-            fund["nav_date"] = str(date.today())
-            fund["current_value"] = fund["existing_value"]
-            fund["daily_pnl"] = 0.0
-            print(f"  跳过净值更新: {fund['fund_name']}（无基金代码，使用现有资产 ¥{fund['existing_value']}）")
+            print(f"  跳过: {fund['fund_name']}（无基金代码）")
             continue
 
         nav_data = fetch_fund_nav(code)
@@ -490,9 +479,9 @@ def main():
             fund.setdefault("acc_nav", 0)
             fund.setdefault("change_rate", 0)
             fund.setdefault("nav_date", str(date.today()))
-            fund["current_value"] = fund["existing_value"]
+            fund["current_value"] = 0
             fund["daily_pnl"] = 0.0
-            print(f"  净值获取失败: {fund['fund_name']} ({code})，使用现有资产")
+            print(f"  净值获取失败: {fund['fund_name']} ({code})")
 
     total_value = sum(f["current_value"] for f in funds)
     total_daily_pnl = sum(f["daily_pnl"] for f in funds)
