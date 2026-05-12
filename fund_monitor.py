@@ -8,7 +8,10 @@ import re
 import json
 import time
 import requests
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
+
+# 东八区时区
+CST = timezone(timedelta(hours=8))
 
 # ── 配置 ──────────────────────────────────────────────
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "")
@@ -155,7 +158,7 @@ def update_notion_fund(
 ) -> bool:
     """更新单只基金在 Notion 中的数据"""
     url = f"https://api.notion.com/v1/pages/{page_id}"
-    now_str = f"{nav_date} {datetime.now().strftime('%H:%M')}"
+    now_str = f"{nav_date} {datetime.now(CST).strftime('%H:%M')}"
 
     # 今日涨跌幅: Notion percent 格式存储小数（0.0153 显示为 1.53%）
     change_rate_stored = change_rate / 100
@@ -235,7 +238,7 @@ def fetch_bond_yield() -> float | None:
     try:
         import akshare as ak
         from datetime import timedelta
-        start = (date.today() - timedelta(days=30)).strftime("%Y%m%d")
+        start = (datetime.now(CST).date() - timedelta(days=30)).strftime("%Y%m%d")
         df = ak.bond_zh_us_rate(start_date=start)
         if df.empty:
             return None
@@ -299,7 +302,7 @@ def market_overall_signal(pe: float | None, pb: float | None, spread: float | No
 
 def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
     """将市场温度追加到数据库描述区（标题下方，表格上方）"""
-    today = date.today().strftime("%Y-%m-%d")
+    today = datetime.now(CST).date().strftime("%Y-%m-%d")
 
     lines = []
     # PE 行：两个指数放一行，各自带阈值
@@ -404,7 +407,7 @@ def calculate_rebalancing(funds: list, total_value: float) -> list:
 def print_summary(funds: list, total_value: float, total_daily_pnl: float):
     """打印汇总报告"""
     print("\n" + "=" * 68)
-    print(f"  基金组合日报  {date.today()}  {datetime.now().strftime('%H:%M')}")
+    print(f"  基金组合日报  {datetime.now(CST).date()}  {datetime.now(CST).strftime('%H:%M')}")
     print("=" * 68)
     print(f"  总市值:   ¥{total_value:>12,.2f}")
     sign = "+" if total_daily_pnl >= 0 else "-"
@@ -451,7 +454,7 @@ def main():
         print("错误: 请设置环境变量 NOTION_TOKEN")
         return
 
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 开始更新基金净值...")
+    print(f"[{datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S')}] 开始更新基金净值...")
 
     # 1. 读取 Notion 持仓
     funds = get_notion_funds()
@@ -478,7 +481,7 @@ def main():
             fund.setdefault("nav", 0)
             fund.setdefault("acc_nav", 0)
             fund.setdefault("change_rate", 0)
-            fund.setdefault("nav_date", str(date.today()))
+            fund.setdefault("nav_date", str(datetime.now(CST).date()))
             fund["current_value"] = 0
             fund["daily_pnl"] = 0.0
             print(f"  净值获取失败: {fund['fund_name']} ({code})")
@@ -502,7 +505,7 @@ def main():
             daily_pnl=fund["daily_pnl"],
             suggestion=fund["suggestion"],
             rebalance_amount=fund["rebalance_amount"],
-            nav_date=fund.get("nav_date", str(date.today())),
+            nav_date=fund.get("nav_date", str(datetime.now(CST).date())),
             target_pct=fund.get("target_pct", 0),
             total_value=total_value,
         )
