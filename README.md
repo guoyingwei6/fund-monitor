@@ -40,7 +40,7 @@
 
 ## 主要特点
 
-- **自动更新净值** — 每个工作日晚上 8 点通过 GitHub Actions 自动运行，拉取天天基金最新确认净值（T+1）
+- **自动更新净值** — 每个工作日晚上 7 点通过 GitHub Actions 自动运行，拉取天天基金最新确认净值（T+1）
 - **实时配置比例** — 自动计算每只基金的实际持仓占比，与目标占比对比
 - **再平衡提醒** — 偏离目标超过 5%（可配置）时，标记「建议买入」或「建议卖出」并显示调仓金额
 - **市场估值温度** — 每日抓取沪深 300、中证 A500（参考中证 500）PE 值，低估 🟢 / 正常 🟡 / 高估 🔴
@@ -56,7 +56,7 @@
 | 数据源 | 天天基金（东方财富）公开 API |
 | 指数估值 | akshare（乌龟量化数据） |
 | 数据存储展示 | Notion Database API |
-| 自动化调度 | GitHub Actions（每工作日 20:00 CST） |
+| 自动化调度 | GitHub Actions（每工作日 19:00 CST） |
 | 运行环境 | Python 3.11 |
 
 ---
@@ -105,7 +105,7 @@ python fund_monitor.py
 1. Fork 或 push 到你自己的 GitHub 仓库
 2. 进入仓库 **Settings → Secrets and variables → Actions**
 3. 添加 Secret：`NOTION_TOKEN` = 你的 Notion Token
-4. 之后每个工作日晚上 8 点自动运行，也可在 Actions 页面手动触发
+4. 之后每个工作日晚上 7 点自动运行，也可在 Actions 页面手动触发
 
 ### 4. 可选配置
 
