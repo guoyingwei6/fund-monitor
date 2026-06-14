@@ -156,7 +156,11 @@ def update_notion_fund(
     target_pct: float = 0,
     total_value: float = 0,
 ) -> bool:
-    """更新单只基金在 Notion 中的数据"""
+    """更新单只基金在 Notion 中的数据。
+
+    「现有资产」和「今日盈亏」由 Notion 公式实时计算，脚本只使用
+    current_value/daily_pnl 做组合比例和再平衡判断，不再写入这两个字段。
+    """
     url = f"https://api.notion.com/v1/pages/{page_id}"
     now_str = f"{nav_date} {datetime.now(CST).strftime('%H:%M')}"
 
@@ -172,8 +176,6 @@ def update_notion_fund(
     props = {
         "当前净值": {"number": round(nav, 4)},
         "今日涨跌幅": {"number": change_rate_stored},
-        "现有资产": {"number": round(current_value, 2)},
-        "今日盈亏": {"number": round(daily_pnl, 2)},
         "配置比例": {"number": round(allocation_ratio, 4)},
         "目标差值": {"number": target_deviation},
         "操作建议": {"select": {"name": suggestion}},
