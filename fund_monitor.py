@@ -21,6 +21,12 @@ NOTION_DATABASE_ID = "25bf49a100364b528fcf8c84077c338a"
 # 例如 0.05 = 5%（目标30%，实际>35%或<25%时触发）
 REBALANCE_THRESHOLD = float(os.environ.get("REBALANCE_THRESHOLD", "0.05"))
 
+# 是否跳过非 A 股交易日。GitHub Actions 仍按周一至周五唤醒脚本，
+# 这里负责在法定节假日等非交易日直接退出。
+SKIP_NON_TRADE_DAY = os.environ.get("SKIP_NON_TRADE_DAY", "true").lower() not in (
+    "0", "false", "no", "off"
+)
+
 NOTION_HEADERS = {
     "Authorization": f"Bearer {NOTION_TOKEN}",
     "Notion-Version": "2022-06-28",
@@ -187,6 +193,27 @@ def update_notion_fund(
 
 
 # ── 指数估值 ───────────────────────────────────────────
+
+def is_cn_trade_day(today: date | None = None) -> bool:
+    """判断今天是否为 A 股交易日。交易日历获取失败时默认继续更新。"""
+    today = today or datetime.now(CST).date()
+    try:
+        import akshare as ak
+        df = ak.tool_trade_date_hist_sina()
+        if df.empty or "trade_date" not in df.columns:
+            print("  [警告] 交易日历为空，继续执行更新")
+            return True
+
+        trade_dates = set()
+        for d in df["trade_date"]:
+            if hasattr(d, "date"):
+                trade_dates.add(d.date())
+            else:
+                trade_dates.add(datetime.fromisoformat(str(d).split()[0]).date())
+        return today in trade_dates
+    except Exception as e:
+        print(f"  [警告] 获取交易日历失败，继续执行更新: {e}")
+        return True
 
 # 沪深300 参考阈值（历史数据）
 HS300_PE_THRESHOLDS = {"low": 12, "high": 18}    # PE: <12 低估, >18 高估
@@ -454,6 +481,11 @@ def print_summary(funds: list, total_value: float, total_daily_pnl: float):
 def main():
     if not NOTION_TOKEN:
         print("错误: 请设置环境变量 NOTION_TOKEN")
+        return
+
+    today = datetime.now(CST).date()
+    if SKIP_NON_TRADE_DAY and not is_cn_trade_day(today):
+        print(f"[{datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S')}] {today} 不是 A 股交易日，跳过更新")
         return
 
     print(f"[{datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S')}] 开始更新基金净值...")
