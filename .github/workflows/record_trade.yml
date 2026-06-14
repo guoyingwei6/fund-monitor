@@ -1,0 +1,40 @@
+name: 记录基金交易流水
+
+on:
+  workflow_dispatch:
+    inputs:
+      ocr_text:
+        description: "支付宝基金截图 OCR 文本"
+        required: true
+        type: string
+      trade_date:
+        description: "可选：交易日期 YYYY-MM-DD，留空时优先使用 OCR 日期，否则使用当天"
+        required: false
+        type: string
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 解析截图并写入 Notion
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: "25bf49a100364b528fcf8c84077c338a"
+          NOTION_TRADES_DATABASE_ID: "b7a9b06a-b7db-43f0-b825-aa8e61af1285"
+          OCR_TEXT: ${{ inputs.ocr_text }}
+        run: |
+          if [ -n "${{ inputs.trade_date }}" ]; then
+            python record_trade_from_ocr.py --date "${{ inputs.trade_date }}"
+          else
+            python record_trade_from_ocr.py
+          fi
