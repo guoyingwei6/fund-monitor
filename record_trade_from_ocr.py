@@ -156,7 +156,7 @@ def parse_float(value: str) -> float:
     return float(value.replace(",", "").replace("+", "").strip())
 
 
-def find_number_after_labels(text: str, labels: list[str]) -> float | None:
+def find_raw_number_after_labels(text: str, labels: list[str]) -> str | None:
     normalized = normalize_text(text)
     joined = compact(text)
     number = r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?"
@@ -168,8 +168,29 @@ def find_number_after_labels(text: str, labels: list[str]) -> float | None:
         for pattern in patterns:
             match = re.search(pattern, normalized, re.I) or re.search(pattern, joined, re.I)
             if match:
-                return parse_float(match.group(1))
+                return match.group(1)
     return None
+
+
+def find_number_after_labels(text: str, labels: list[str]) -> float | None:
+    raw = find_raw_number_after_labels(text, labels)
+    return parse_float(raw) if raw is not None else None
+
+
+def parse_money(value: str) -> float:
+    cleaned = value.replace(",", "").replace("+", "").strip()
+    match = re.match(r"([-+]?\d+)(?:\.(\d+))?$", cleaned)
+    if not match:
+        return parse_float(value)
+    whole, decimals = match.groups()
+    if not decimals:
+        return float(whole)
+    return float(f"{whole}.{decimals[:2].ljust(2, '0')}")
+
+
+def find_money_after_labels(text: str, labels: list[str]) -> float | None:
+    raw = find_raw_number_after_labels(text, labels)
+    return parse_money(raw) if raw is not None else None
 
 
 def parse_date(text: str, fallback: str | None = None) -> str:
@@ -280,7 +301,7 @@ def parse_trade(text: str, funds: list[Fund], date_override: str | None = None) 
     fund = match_fund(text, funds)
     trade_type = infer_trade_type(text)
 
-    amount = find_number_after_labels(text, [
+    amount = find_money_after_labels(text, [
         "买入金额",
         "卖出金额",
         "赎回金额",
@@ -293,7 +314,7 @@ def parse_trade(text: str, funds: list[Fund], date_override: str | None = None) 
         "支付金额",
         "分红金额",
     ])
-    pending_amount = find_number_after_labels(text, ["待确认金额", "待确认"])
+    pending_amount = find_money_after_labels(text, ["待确认金额", "待确认"])
     if trade_type == "持仓快照":
         amount = 0
     elif amount is None and pending_amount is not None:
@@ -312,13 +333,13 @@ def parse_trade(text: str, funds: list[Fund], date_override: str | None = None) 
         share_delta = -abs(share_delta)
 
     nav = find_number_after_labels(text, ["确认净值", "成交净值", "买入净值", "基金净值", "当前净值", "净值"])
-    confirmed_amount = None if trade_type == "持仓快照" else find_number_after_labels(text, ["确认金额"])
-    fee = find_number_after_labels(text, ["手续费"])
+    confirmed_amount = None if trade_type == "持仓快照" else find_money_after_labels(text, ["确认金额"])
+    fee = find_money_after_labels(text, ["手续费"])
     confirm_date = find_date_after_labels(text, ["确认时间", "确认日期"])
     order_no = find_order_no(text)
-    holding_amount = find_number_after_labels(text, ["持有金额", "持有市值", "持仓金额"])
+    holding_amount = find_money_after_labels(text, ["持有金额", "持有市值", "持仓金额"])
     holding_cost = find_number_after_labels(text, ["持仓成本", "持有成本", "成本"])
-    holding_profit = find_number_after_labels(text, ["持有收益"])
+    holding_profit = find_money_after_labels(text, ["持有收益"])
     holding_profit_rate = find_number_after_labels(text, ["持有收益率"])
     if holding_profit_rate is not None:
         holding_profit_rate = holding_profit_rate / 100
@@ -329,7 +350,8 @@ def parse_trade(text: str, funds: list[Fund], date_override: str | None = None) 
     if trade_type == "持仓快照":
         status = "已同步"
     else:
-        status = "待确认" if pending_amount is not None or "待确认" in compact(text) else "已确认"
+        c = compact(text)
+        status = "待确认" if pending_amount is not None or "待确认" in c or "撤销" in c else "已确认"
 
     parsed = ParsedTrade(
         fund=fund,
