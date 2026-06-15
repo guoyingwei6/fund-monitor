@@ -121,8 +121,12 @@ def get_notion_funds() -> list:
         def get_number(key):
             return props.get(key, {}).get("number") or 0
 
+        def get_select(key):
+            return (props.get(key, {}).get("select") or {}).get("name", "")
+
         fund_code = get_text("基金代码").strip()
         fund_name = get_title("基金名称").strip()
+        asset_layer = get_select("资产层")
         shares = get_number("持有份额")
         target_pct_raw = get_text("目标占比").strip()
 
@@ -143,11 +147,55 @@ def get_notion_funds() -> list:
             "page_id": page["id"],
             "fund_code": fund_code,
             "fund_name": fund_name,
+            "asset_layer": asset_layer,
             "shares": shares,
             "target_pct": target_pct,
         })
 
     return funds
+
+
+def ensure_notion_schema() -> None:
+    """Ensure optional dynamic-investing fields exist in the holdings database."""
+    url = f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}"
+    resp = requests.get(url, headers=NOTION_HEADERS, timeout=15)
+    resp.raise_for_status()
+    props = resp.json().get("properties", {})
+
+    additions = {}
+    if "估值信号" not in props:
+        additions["估值信号"] = {
+            "select": {
+                "options": [
+                    {"name": "低估", "color": "green"},
+                    {"name": "正常", "color": "yellow"},
+                    {"name": "高估", "color": "red"},
+                    {"name": "暂无", "color": "gray"},
+                ]
+            }
+        }
+    if "定投建议" not in props:
+        additions["定投建议"] = {
+            "select": {
+                "options": [
+                    {"name": "暂停", "color": "red"},
+                    {"name": "50%", "color": "orange"},
+                    {"name": "100%", "color": "blue"},
+                    {"name": "150%", "color": "green"},
+                    {"name": "200%", "color": "purple"},
+                ]
+            }
+        }
+
+    if additions:
+        patch = requests.patch(
+            url,
+            headers=NOTION_HEADERS,
+            json={"properties": additions},
+            timeout=15,
+        )
+        patch.raise_for_status()
+        print(f"  [OK] 已补充 Notion 字段: {', '.join(additions)}")
 
 
 def update_notion_fund(
@@ -161,6 +209,8 @@ def update_notion_fund(
     nav_date: str,
     target_pct: float = 0,
     total_value: float = 0,
+    valuation_signal: str = "暂无",
+    dca_suggestion: str = "100%",
 ) -> bool:
     """更新单只基金在 Notion 中的数据。
 
@@ -185,6 +235,8 @@ def update_notion_fund(
         "配置比例": {"number": round(allocation_ratio, 4)},
         "目标差值": {"number": target_deviation},
         "操作建议": {"select": {"name": suggestion}},
+        "估值信号": {"select": {"name": valuation_signal}},
+        "定投建议": {"select": {"name": dca_suggestion}},
         "更新时间": {"rich_text": [{"text": {"content": now_str}}]},
     }
 
@@ -329,6 +381,91 @@ def market_overall_signal(pe: float | None, pb: float | None, spread: float | No
         return "💡 综合建议：🔴 多项高估，建议减少股票增持债券"
 
 
+def valuation_signal(pe: float | None, pb: float | None, pe_thresholds: dict, pb_thresholds: dict) -> str:
+    """Return a compact valuation label from PE/PB signals."""
+    score = 0
+    valid = 0
+    if pe is not None:
+        valid += 1
+        if pe <= pe_thresholds["low"]:
+            score += 1
+        elif pe >= pe_thresholds["high"]:
+            score -= 1
+    if pb is not None:
+        valid += 1
+        if pb <= pb_thresholds["low"]:
+            score += 1
+        elif pb >= pb_thresholds["high"]:
+            score -= 1
+
+    if valid == 0:
+        return "暂无"
+    if score > 0:
+        return "低估"
+    if score < 0:
+        return "高估"
+    return "正常"
+
+
+def fund_valuation_signal(fund: dict, hs300_pe, hs300_pb, a500_pe, a500_pb) -> str:
+    """Map each holding to the closest available valuation signal."""
+    name = fund.get("fund_name", "")
+    layer = fund.get("asset_layer", "")
+
+    if layer == "债券层":
+        return "暂无"
+    if "中证A500" in name or "A500" in name:
+        return valuation_signal(a500_pe, a500_pb, A500_PE_THRESHOLDS, A500_PB_THRESHOLDS)
+    if "沪深300" in name or "沪深 300" in name:
+        return valuation_signal(hs300_pe, hs300_pb, HS300_PE_THRESHOLDS, HS300_PB_THRESHOLDS)
+    return "暂无"
+
+
+def dca_suggestion(valuation: str, deviation: float, target_pct: float) -> str:
+    """Suggest this period's contribution as a percentage of the base plan."""
+    if target_pct == 0:
+        return "暂停"
+
+    underweight = deviation <= -REBALANCE_THRESHOLD
+    overweight = deviation >= REBALANCE_THRESHOLD
+
+    if valuation == "低估":
+        if underweight:
+            return "200%"
+        if overweight:
+            return "100%"
+        return "150%"
+    if valuation == "高估":
+        if underweight:
+            return "50%"
+        return "暂停" if overweight else "50%"
+    if valuation == "正常":
+        if underweight:
+            return "150%"
+        if overweight:
+            return "50%"
+        return "100%"
+
+    # No direct valuation source: use allocation drift only.
+    if underweight:
+        return "150%"
+    if overweight:
+        return "50%"
+    return "100%"
+
+
+def apply_dca_suggestions(funds: list, hs300_pe, hs300_pb, a500_pe, a500_pb) -> list:
+    for fund in funds:
+        signal = fund_valuation_signal(fund, hs300_pe, hs300_pb, a500_pe, a500_pb)
+        fund["valuation_signal"] = signal
+        fund["dca_suggestion"] = dca_suggestion(
+            signal,
+            fund.get("deviation", 0),
+            fund.get("target_pct", 0),
+        )
+    return funds
+
+
 def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
     """将市场温度追加到数据库描述区（标题下方，表格上方）"""
     today = datetime.now(CST).date().strftime("%Y-%m-%d")
@@ -442,7 +579,7 @@ def print_summary(funds: list, total_value: float, total_daily_pnl: float):
     sign = "+" if total_daily_pnl >= 0 else "-"
     print(f"  今日盈亏: {sign}¥{abs(total_daily_pnl):>11,.2f}")
     print("-" * 68)
-    print(f"  {'基金名称':<14} {'净值':>7} {'今日涨跌':>9} {'市值':>11} {'实配':>6} {'目标':>6}  建议")
+    print(f"  {'基金名称':<14} {'净值':>7} {'今日涨跌':>9} {'市值':>11} {'实配':>6} {'目标':>6} {'估值':>4} {'定投':>5}  建议")
     print("-" * 68)
 
     need_rebalance = False
@@ -465,6 +602,8 @@ def print_summary(funds: list, total_value: float, total_daily_pnl: float):
             f"  ¥{f.get('current_value', 0):>9,.0f}"
             f"  {f.get('current_pct', 0)*100:>5.1f}%"
             f"  {f.get('target_pct', 0)*100:>5.1f}%"
+            f"  {f.get('valuation_signal', '暂无'):>4}"
+            f"  {f.get('dca_suggestion', '100%'):>5}"
             f"  {sug_str}"
         )
 
@@ -482,6 +621,8 @@ def main():
     if not NOTION_TOKEN:
         print("错误: 请设置环境变量 NOTION_TOKEN")
         return
+
+    ensure_notion_schema()
 
     today = datetime.now(CST).date()
     if SKIP_NON_TRADE_DAY and not is_cn_trade_day(today):
@@ -526,7 +667,16 @@ def main():
     # 3. 计算再平衡建议
     funds = calculate_rebalancing(funds, total_value)
 
-    # 4. 更新 Notion
+    # 4. 获取指数估值，生成每只基金的定投建议
+    print("正在获取指数估值...")
+    hs300_pe = fetch_index_pe("沪深300")
+    hs300_pb = fetch_index_pb("沪深300")
+    a500_pe = fetch_index_pe("中证500")     # 中证A500 暂用中证500 PE/PB 作参考
+    a500_pb = fetch_index_pb("中证500")
+    bond_yield = fetch_bond_yield()
+    funds = apply_dca_suggestions(funds, hs300_pe, hs300_pb, a500_pe, a500_pb)
+
+    # 5. 更新 Notion
     print("正在更新 Notion...")
     for fund in funds:
         if fund.get("nav", 0) == 0 and fund.get("fund_code"):
@@ -542,21 +692,17 @@ def main():
             nav_date=fund.get("nav_date", str(datetime.now(CST).date())),
             target_pct=fund.get("target_pct", 0),
             total_value=total_value,
+            valuation_signal=fund.get("valuation_signal", "暂无"),
+            dca_suggestion=fund.get("dca_suggestion", "100%"),
         )
         status = "OK" if success else "FAIL"
         print(f"  [{status}] {fund['fund_name']} ({fund['fund_code']})")
         time.sleep(0.3)
 
-    # 5. 获取指数估值并更新 callout
-    print("正在获取指数估值...")
-    hs300_pe = fetch_index_pe("沪深300")
-    hs300_pb = fetch_index_pb("沪深300")
-    a500_pe = fetch_index_pe("中证500")     # 中证A500 暂用中证500 PE 作参考
-    a500_pb = fetch_index_pb("中证500")
-    bond_yield = fetch_bond_yield()
+    # 6. 更新市场温度 callout
     update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield)
 
-    # 6. 打印汇总
+    # 7. 打印汇总
     print_summary(funds, total_value, total_daily_pnl)
 
 
