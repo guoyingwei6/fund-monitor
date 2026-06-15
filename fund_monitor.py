@@ -700,20 +700,44 @@ def sync_parent_page_strategy_callout(content: str) -> None:
             text = block_plain_text(block)
             if block.get("type") == "child_database" and text == "基金持仓":
                 holdings_block_id = block["id"]
-            if "长期投资配置方案" in text or "市场温度" in text:
+            if block.get("type") in ("paragraph", "callout") and ("长期投资配置方案" in text or "市场温度" in text):
                 existing_block = block
 
-        callout_payload = {
-            "callout": {
-                "rich_text": [{"type": "text", "text": {"content": content[:1900]}}],
-                "icon": {"type": "emoji", "emoji": "💵"},
-            }
-        }
+        rich_text = [{"type": "text", "text": {"content": content[:1900]}}]
         if existing_block:
+            block_type = existing_block["type"]
+            block_payload = existing_block.get(block_type, {})
+            if block_type == "paragraph" and block_payload.get("icon"):
+                replace_payload = {
+                    "children": [{
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {"rich_text": rich_text},
+                    }],
+                    "after": existing_block["id"],
+                }
+                resp = requests.patch(
+                    f"https://api.notion.com/v1/blocks/{parent_id}/children",
+                    headers=NOTION_HEADERS,
+                    json=replace_payload,
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                archive_resp = requests.patch(
+                    f"https://api.notion.com/v1/blocks/{existing_block['id']}",
+                    headers=NOTION_HEADERS,
+                    json={"archived": True},
+                    timeout=10,
+                )
+                archive_resp.raise_for_status()
+                print("  [OK] 页面正文策略说明已替换为无图标段落")
+                return
+
+            update_payload = {block_type: {"rich_text": rich_text}}
             resp = requests.patch(
                 f"https://api.notion.com/v1/blocks/{existing_block['id']}",
                 headers=NOTION_HEADERS,
-                json=callout_payload,
+                json=update_payload,
                 timeout=10,
             )
             resp.raise_for_status()
@@ -723,8 +747,8 @@ def sync_parent_page_strategy_callout(content: str) -> None:
         append_payload = {
             "children": [{
                 "object": "block",
-                "type": "callout",
-                **callout_payload,
+                "type": "paragraph",
+                "paragraph": {"rich_text": rich_text},
             }]
         }
         if holdings_block_id:
@@ -758,7 +782,8 @@ def update_market_callout(
     """将市场温度追加到数据库描述区（标题下方，表格上方）"""
     today = datetime.now(CST).date().strftime("%Y-%m-%d")
 
-    lines = []
+    market_lines = []
+    asset_lines = []
     # PE 行：两个指数放一行，各自带阈值
     pe_parts = []
     if hs300_pe:
@@ -766,7 +791,7 @@ def update_market_callout(
     if a500_pe:
         pe_parts.append(f"中证A500参考(中证500) {a500_pe} {_signal(a500_pe, A500_PE_THRESHOLDS['low'], A500_PE_THRESHOLDS['high'])}")
     if pe_parts:
-        lines.append("💹 市盈率PE：" + " | ".join(pe_parts))
+        market_lines.append("💹 市盈率PE：" + " | ".join(pe_parts))
     # PB 行：两个指数放一行，各自带阈值
     pb_parts = []
     if hs300_pb:
@@ -774,23 +799,25 @@ def update_market_callout(
     if a500_pb:
         pb_parts.append(f"中证A500参考(中证500) {a500_pb} {_signal(a500_pb, A500_PB_THRESHOLDS['low'], A500_PB_THRESHOLDS['high'])}")
     if pb_parts:
-        lines.append("🏛 市净率PB：" + " | ".join(pb_parts))
+        market_lines.append("🏛 市净率PB：" + " | ".join(pb_parts))
     # 股债利差
     spread = None
     if hs300_pe and bond_yield:
         spread = round((1 / hs300_pe) * 100 - bond_yield, 2)
         sig = _signal(spread, SPREAD_THRESHOLDS["low"], SPREAD_THRESHOLDS["high"],
                       low_label="🔴 股票偏贵", mid_label="🟡 正常", high_label="🟢 股票便宜")
-        lines.append(f"📉 股债利差：{spread}%  {sig}")
-    lines.append(f"🏦 债券温度：10年国债收益率分位 {bond_signal}")
-    lines.append(f"🇭🇰 港股温度：恒生股息率 {hsi_dividend_signal} | 250日线 {hsi_trend_signal} | 综合 {hsi_signal}")
-    lines.append(f"🇨🇳 中证A500温度：中证500 PE/PB参考 {a500_signal}")
-    lines.append(f"🇺🇸 纳指温度：250日线/回撤 {nasdaq_signal}")
+        market_lines.append(f"📉 股债利差：{spread}%  {sig}")
     # 综合建议
-    lines.append(market_overall_signal(hs300_pe, hs300_pb, spread))
+    market_lines.append(market_overall_signal(hs300_pe, hs300_pb, spread))
 
-    market_text = "\n".join(lines) if lines else "估值数据暂时不可用"
-    market_line = f"———————————————————————————\n📊 市场温度 {today}：\n{market_text}"
+    asset_lines.append(f"🏦 债券温度：10年国债收益率分位 {bond_signal}")
+    asset_lines.append(f"🇭🇰 港股温度：恒生股息率 {hsi_dividend_signal} | 250日线 {hsi_trend_signal} | 综合 {hsi_signal}")
+    asset_lines.append(f"🇨🇳 中证温度：中证500 PE/PB参考 {a500_signal}")
+    asset_lines.append(f"🇺🇸 纳指温度：250日线/回撤 {nasdaq_signal}")
+
+    market_text = "\n".join(market_lines) if market_lines else "估值数据暂时不可用"
+    asset_text = "\n".join(asset_lines)
+    market_line = f"———————————————————————————\n📊 市场温度 {today}：\n{market_text}\n———————————————————————————\n{asset_text}"
 
     # 读取现有描述，去掉上次写的市场温度行，保留其余内容
     db_resp = requests.get(
@@ -803,9 +830,13 @@ def update_market_callout(
             b.get("plain_text", "") for b in db_resp.json().get("description", [])
         )
 
-    skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证A500", "📈 中证500", "📉 股债利差", "💡 综合建议",
-                     "🏦 债券温度", "🇭🇰 港股温度", "🇨🇳 中证A500温度", "🇺🇸 纳指温度",
-                     "沪深300 PE", "中证A500 PE", "———", "市盈率PE", "市净率PB", "💹 市盈率PE", "🏛 市净率PB")
+    skip_keywords = ("📊 市场温度", "市场温度", "🏦 沪深300", "📈 中证A500", "📈 中证500",
+                     "📉 股债利差", "股债利差", "💡 综合建议", "综合建议",
+                     "🏦 债券温度", "债券温度", "🇭🇰 港股温度", "港股温度",
+                     "🇨🇳 中证A500温度", "🇨🇳 中证温度", "中证A500温度", "中证温度",
+                     "🇺🇸 纳指温度", "纳指温度",
+                     "沪深300 PE", "中证A500 PE", "———", "市盈率PE", "市净率PB",
+                     "💹 市盈率PE", "🏛 市净率PB")
     strategy_lines = [
         l for l in existing_desc.splitlines()
         if not any(l.startswith(k) for k in skip_keywords)
