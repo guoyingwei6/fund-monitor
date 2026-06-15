@@ -657,6 +657,91 @@ def apply_dca_suggestions(
     return funds
 
 
+def block_plain_text(block: dict) -> str:
+    block_type = block.get("type", "")
+    payload = block.get(block_type, {})
+    if not isinstance(payload, dict):
+        return ""
+    title = payload.get("title")
+    if isinstance(title, str):
+        return title
+    rich_text = payload.get("rich_text") or title or []
+    return "".join(part.get("plain_text", "") for part in rich_text if isinstance(part, dict))
+
+
+def sync_parent_page_strategy_callout(content: str) -> None:
+    """Mirror the database description into the parent page body when authorized."""
+    try:
+        db_resp = requests.get(
+            f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
+            headers=NOTION_HEADERS,
+            timeout=10,
+        )
+        db_resp.raise_for_status()
+        parent = db_resp.json().get("parent", {})
+        parent_id = parent.get("block_id") or parent.get("page_id")
+        if not parent_id:
+            return
+
+        children_resp = requests.get(
+            f"https://api.notion.com/v1/blocks/{parent_id}/children?page_size=100",
+            headers=NOTION_HEADERS,
+            timeout=10,
+        )
+        if children_resp.status_code == 404:
+            print("  [提示] 父页面未授权，跳过页面正文同步")
+            return
+        children_resp.raise_for_status()
+        children = children_resp.json().get("results", [])
+
+        existing_block = None
+        holdings_block_id = None
+        for block in children:
+            text = block_plain_text(block)
+            if block.get("type") == "child_database" and text == "基金持仓":
+                holdings_block_id = block["id"]
+            if "长期投资配置方案" in text or "市场温度" in text:
+                existing_block = block
+
+        callout_payload = {
+            "callout": {
+                "rich_text": [{"type": "text", "text": {"content": content[:1900]}}],
+                "icon": {"type": "emoji", "emoji": "💵"},
+            }
+        }
+        if existing_block:
+            resp = requests.patch(
+                f"https://api.notion.com/v1/blocks/{existing_block['id']}",
+                headers=NOTION_HEADERS,
+                json=callout_payload,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            print("  [OK] 页面正文策略说明已更新")
+            return
+
+        append_payload = {
+            "children": [{
+                "object": "block",
+                "type": "callout",
+                **callout_payload,
+            }]
+        }
+        if holdings_block_id:
+            append_payload["after"] = holdings_block_id
+
+        resp = requests.patch(
+            f"https://api.notion.com/v1/blocks/{parent_id}/children",
+            headers=NOTION_HEADERS,
+            json=append_payload,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        print("  [OK] 页面正文策略说明已创建")
+    except Exception as e:
+        print(f"  [警告] 同步页面正文策略说明失败: {e}")
+
+
 def update_market_callout(
     hs300_pe,
     hs300_pb,
@@ -737,6 +822,8 @@ def update_market_callout(
     status = "OK" if resp.status_code == 200 else f"FAIL({resp.status_code})"
     print(f"  [{status}] 市场温度已写入描述区")
     print(f"       {market_line}")
+    if resp.status_code == 200:
+        sync_parent_page_strategy_callout(new_desc)
 
 
 # ── 再平衡逻辑 ─────────────────────────────────────────
