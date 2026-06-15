@@ -456,6 +456,7 @@ def main() -> int:
     parser.add_argument("--ocr-file")
     parser.add_argument("--date")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-update-holdings", action="store_true")
     args = parser.parse_args()
 
     if not NOTION_TOKEN:
@@ -495,7 +496,11 @@ def main() -> int:
         return 0
 
     page_id = create_trade_page(trade, ocr_text)
-    updated_shares = update_fund_shares_if_needed(trade)
+    if args.no_update_holdings:
+        updated_shares = False
+        print("[SKIP] 按参数跳过持有份额更新")
+    else:
+        updated_shares = update_fund_shares_if_needed(trade)
     print(f"[OK] 已写入交易流水: {page_id}")
     print(f"[OK] 已更新持有份额: {updated_shares}")
     return 0
