@@ -211,6 +211,8 @@ python record_trade_from_ocr.py --ocr-file ocr.txt --no-update-holdings
 | 纳指温度 | akshare / 新浪纳斯达克 100 日线 | 用 250 日线和近一年回撤作趋势温度 |
 | 债券温度 | akshare / 中国 10 年国债收益率 | 用近 5 年收益率分位判断债券贵贱 |
 
+市场温度区会并列展示债券、港股、中证 A500、纳指四类资产的温度信号；PE/PB 行保留为原始估值指标。
+
 > 所有数据均来自公开接口，无需注册或付费。
 
 ---

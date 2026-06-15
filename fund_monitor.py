@@ -749,6 +749,7 @@ def update_market_callout(
     a500_pb,
     bond_yield,
     bond_signal="暂无",
+    a500_signal="暂无",
     hsi_dividend_signal="暂无",
     hsi_trend_signal="暂无",
     hsi_signal="暂无",
@@ -783,6 +784,7 @@ def update_market_callout(
         lines.append(f"📉 股债利差：{spread}%  {sig}")
     lines.append(f"🏦 债券温度：10年国债收益率分位 {bond_signal}")
     lines.append(f"🇭🇰 港股温度：恒生股息率 {hsi_dividend_signal} | 250日线 {hsi_trend_signal} | 综合 {hsi_signal}")
+    lines.append(f"🇨🇳 中证A500温度：中证500 PE/PB参考 {a500_signal}")
     lines.append(f"🇺🇸 纳指温度：250日线/回撤 {nasdaq_signal}")
     # 综合建议
     lines.append(market_overall_signal(hs300_pe, hs300_pb, spread))
@@ -802,7 +804,7 @@ def update_market_callout(
         )
 
     skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证A500", "📈 中证500", "📉 股债利差", "💡 综合建议",
-                     "🏦 债券温度", "🇭🇰 港股温度", "🇺🇸 纳指温度",
+                     "🏦 债券温度", "🇭🇰 港股温度", "🇨🇳 中证A500温度", "🇺🇸 纳指温度",
                      "沪深300 PE", "中证A500 PE", "———", "市盈率PE", "市净率PB", "💹 市盈率PE", "🏛 市净率PB")
     strategy_lines = [
         l for l in existing_desc.splitlines()
@@ -968,6 +970,7 @@ def main():
     hs300_pb = fetch_index_pb("沪深300")
     a500_pe = fetch_index_pe("中证500")     # 中证A500 暂用中证500 PE/PB 作参考
     a500_pb = fetch_index_pb("中证500")
+    a500_signal = valuation_signal(a500_pe, a500_pb, A500_PE_THRESHOLDS, A500_PB_THRESHOLDS)
     bond_yield = fetch_bond_yield()
     bond_signal = fetch_bond_yield_signal()
     hsi_dividend_signal = fetch_hsi_dividend_signal()
@@ -1016,6 +1019,7 @@ def main():
         a500_pb,
         bond_yield,
         bond_signal=bond_signal,
+        a500_signal=a500_signal,
         hsi_dividend_signal=hsi_dividend_signal,
         hsi_trend_signal=hsi_trend_signal,
         hsi_signal=hsi_signal,
