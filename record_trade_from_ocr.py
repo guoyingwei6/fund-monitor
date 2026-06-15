@@ -398,7 +398,7 @@ def number_prop(value: float | None) -> dict[str, Any] | None:
     return {"number": round(value, 6)}
 
 
-def create_trade_page(trade: ParsedTrade, ocr_text: str) -> str:
+def build_trade_properties(trade: ParsedTrade, ocr_text: str) -> dict[str, Any]:
     props: dict[str, Any] = {
         "交易名称": {"title": [{"text": {"content": f"{trade.date} {trade.fund.name} {trade.trade_type}"}}]},
         "日期": {"date": {"start": trade.date}},
@@ -432,12 +432,37 @@ def create_trade_page(trade: ParsedTrade, ocr_text: str) -> str:
         props["确认日期"] = {"date": {"start": trade.confirm_date}}
     if trade.trade_type == "买入":
         props["买入时间"] = {"date": {"start": trade.date}}
+    return props
 
+
+def create_trade_page(trade: ParsedTrade, ocr_text: str) -> str:
+    props = build_trade_properties(trade, ocr_text)
     data = notion_post(
         "https://api.notion.com/v1/pages",
         {"parent": {"database_id": TRADES_DATABASE_ID}, "properties": props},
     )
     return data["id"]
+
+
+def select_name(page: dict[str, Any], key: str) -> str:
+    prop = page.get("properties", {}).get(key, {})
+    return (prop.get("select") or {}).get("name", "")
+
+
+def can_update_pending_duplicate(duplicate: dict[str, Any], trade: ParsedTrade) -> bool:
+    return (
+        bool(trade.order_no)
+        and select_name(duplicate, "状态") == "待确认"
+        and trade.status == "已确认"
+    )
+
+
+def update_trade_page(page_id: str, trade: ParsedTrade, ocr_text: str) -> None:
+    props = build_trade_properties(trade, ocr_text)
+    notion_patch(
+        f"https://api.notion.com/v1/pages/{page_id}",
+        {"properties": props},
+    )
 
 
 def update_fund_shares_if_needed(trade: ParsedTrade) -> bool:
@@ -514,7 +539,19 @@ def main() -> int:
 
     duplicate = find_duplicate(trade.dedupe_key)
     if duplicate:
-        print(f"[SKIP] 已存在相同去重键，跳过导入: {duplicate['id']}")
+        duplicate_id = duplicate["id"]
+        if not can_update_pending_duplicate(duplicate, trade):
+            print(f"[SKIP] 已存在相同去重键，跳过导入: {duplicate_id}")
+            return 0
+
+        update_trade_page(duplicate_id, trade, ocr_text)
+        if args.no_update_holdings:
+            updated_shares = False
+            print("[SKIP] 按参数跳过持有份额更新")
+        else:
+            updated_shares = update_fund_shares_if_needed(trade)
+        print(f"[OK] 已更新待确认交易流水: {duplicate_id}")
+        print(f"[OK] 已更新持有份额: {updated_shares}")
         return 0
 
     page_id = create_trade_page(trade, ocr_text)
