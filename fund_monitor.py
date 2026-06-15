@@ -277,6 +277,13 @@ A500_PB_THRESHOLDS = {"low": 2.0, "high": 3.5}   # PB: <2.0 低估, >3.5 高估
 # >5% 股票便宜，<2% 股票贵
 SPREAD_THRESHOLDS = {"low": 2.0, "high": 5.0}
 
+DEFAULT_STRATEGY_DESCRIPTION = "\n".join([
+    "🎯 长期投资配置方案：",
+    "⏳ 目标持有期：30年",
+    "📈 预期年化：6-9%，进取目标10%",
+    "⚖️ 配置比例：债券40%，股票60%",
+])
+
 # 趋势温度阈值：用于没有稳定 PE/PB 的海外指数。
 TREND_MA_DAYS = 250
 TREND_HOT_MA_RATIO = 1.15
@@ -713,6 +720,8 @@ def update_market_callout(
         if not any(l.startswith(k) for k in skip_keywords)
     ]
     strategy_text = "\n".join(strategy_lines).strip()
+    if not strategy_text or "长期投资配置方案" not in strategy_text:
+        strategy_text = DEFAULT_STRATEGY_DESCRIPTION
     new_desc = f"{strategy_text}\n{market_line}" if strategy_text else market_line
 
     resp = requests.patch(
