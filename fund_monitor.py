@@ -277,6 +277,16 @@ A500_PB_THRESHOLDS = {"low": 2.0, "high": 3.5}   # PB: <2.0 低估, >3.5 高估
 # >5% 股票便宜，<2% 股票贵
 SPREAD_THRESHOLDS = {"low": 2.0, "high": 5.0}
 
+# 趋势温度阈值：用于没有稳定 PE/PB 的海外指数。
+TREND_MA_DAYS = 250
+TREND_HOT_MA_RATIO = 1.15
+TREND_COLD_MA_RATIO = 0.95
+TREND_COLD_DRAWDOWN = -0.20
+
+# 分位数阈值：股息率越高越便宜，债券收益率越高债券越便宜。
+PERCENTILE_LOW = 0.30
+PERCENTILE_HIGH = 0.70
+
 
 def fetch_index_pe(index_name: str) -> float | None:
     """获取指数最新 PE(TTM)"""
@@ -334,6 +344,145 @@ def fetch_bond_yield() -> float | None:
     except Exception as e:
         print(f"  [警告] 获取国债收益率失败: {e}")
     return None
+
+
+def percentile_rank(values: list[float], current: float) -> float | None:
+    clean = [v for v in values if v is not None]
+    if not clean:
+        return None
+    below_or_equal = sum(1 for v in clean if v <= current)
+    return below_or_equal / len(clean)
+
+
+def signal_from_score(score: int, valid: int) -> str:
+    if valid == 0:
+        return "暂无"
+    if score > 0:
+        return "低估"
+    if score < 0:
+        return "高估"
+    return "正常"
+
+
+def fetch_bond_yield_signal() -> str:
+    """Use 10Y China government bond yield percentile as bond valuation."""
+    try:
+        import akshare as ak
+        from datetime import timedelta
+        start = (datetime.now(CST).date() - timedelta(days=365 * 5)).strftime("%Y%m%d")
+        df = ak.bond_zh_us_rate(start_date=start)
+        if df.empty:
+            return "暂无"
+        df = df.sort_values("日期")
+        vals = []
+        for val in df["中国国债收益率10年"]:
+            if val and str(val) not in ("-", "nan", "None"):
+                try:
+                    vals.append(float(val))
+                except (ValueError, TypeError):
+                    continue
+        if not vals:
+            return "暂无"
+        rank = percentile_rank(vals, vals[-1])
+        if rank is None:
+            return "暂无"
+        if rank >= PERCENTILE_HIGH:
+            return "低估"
+        if rank <= PERCENTILE_LOW:
+            return "高估"
+        return "正常"
+    except Exception as e:
+        print(f"  [警告] 获取债券估值信号失败: {e}")
+    return "暂无"
+
+
+def trend_signal_from_close(closes: list[float]) -> str:
+    """Use 250D moving average and 1Y drawdown as a trend temperature proxy."""
+    clean = [float(v) for v in closes if v is not None and float(v) > 0]
+    if len(clean) < TREND_MA_DAYS:
+        return "暂无"
+
+    recent = clean[-TREND_MA_DAYS:]
+    close = recent[-1]
+    ma = sum(recent) / len(recent)
+    high = max(recent)
+    ma_ratio = close / ma if ma else 1
+    drawdown = close / high - 1 if high else 0
+
+    if ma_ratio >= TREND_HOT_MA_RATIO and drawdown > -0.05:
+        return "高估"
+    if ma_ratio <= TREND_COLD_MA_RATIO or drawdown <= TREND_COLD_DRAWDOWN:
+        return "低估"
+    return "正常"
+
+
+def fetch_nasdaq_trend_signal() -> str:
+    """NASDAQ 100 temperature from daily price trend when PE is unavailable."""
+    try:
+        import akshare as ak
+        df = ak.index_us_stock_sina(symbol=".NDX")
+        if df.empty or "close" not in df.columns:
+            return "暂无"
+        return trend_signal_from_close(df["close"].tolist())
+    except Exception as e:
+        print(f"  [警告] 获取纳指趋势信号失败: {e}")
+    return "暂无"
+
+
+def fetch_hsi_trend_signal() -> str:
+    """Hang Seng Index temperature from daily price trend."""
+    try:
+        import akshare as ak
+        df = ak.stock_hk_index_daily_sina(symbol="HSI")
+        if df.empty or "close" not in df.columns:
+            return "暂无"
+        return trend_signal_from_close(df["close"].tolist())
+    except Exception as e:
+        print(f"  [警告] 获取恒生趋势信号失败: {e}")
+    return "暂无"
+
+
+def fetch_hsi_dividend_signal() -> str:
+    """Hang Seng dividend yield percentile; higher yield implies cheaper valuation."""
+    try:
+        import akshare as ak
+        df = ak.stock_hk_gxl_lg()
+        if df.empty or "股息率" not in df.columns:
+            return "暂无"
+        vals = []
+        for val in df["股息率"]:
+            if val and str(val) not in ("-", "nan", "None"):
+                try:
+                    vals.append(float(val))
+                except (ValueError, TypeError):
+                    continue
+        if not vals:
+            return "暂无"
+        rank = percentile_rank(vals, vals[-1])
+        if rank is None:
+            return "暂无"
+        if rank >= PERCENTILE_HIGH:
+            return "低估"
+        if rank <= PERCENTILE_LOW:
+            return "高估"
+        return "正常"
+    except Exception as e:
+        print(f"  [警告] 获取恒生股息率信号失败: {e}")
+    return "暂无"
+
+
+def combine_signals(*signals: str) -> str:
+    score = 0
+    valid = 0
+    for sig in signals:
+        if sig == "暂无":
+            continue
+        valid += 1
+        if sig == "低估":
+            score += 1
+        elif sig == "高估":
+            score -= 1
+    return signal_from_score(score, valid)
 
 
 def _signal(val: float, low: float, high: float,
@@ -407,17 +556,30 @@ def valuation_signal(pe: float | None, pb: float | None, pe_thresholds: dict, pb
     return "正常"
 
 
-def fund_valuation_signal(fund: dict, hs300_pe, hs300_pb, a500_pe, a500_pb) -> str:
+def fund_valuation_signal(
+    fund: dict,
+    hs300_pe,
+    hs300_pb,
+    a500_pe,
+    a500_pb,
+    bond_signal: str = "暂无",
+    hsi_signal: str = "暂无",
+    nasdaq_signal: str = "暂无",
+) -> str:
     """Map each holding to the closest available valuation signal."""
     name = fund.get("fund_name", "")
     layer = fund.get("asset_layer", "")
 
     if layer == "债券层":
-        return "暂无"
+        return bond_signal
     if "中证A500" in name or "A500" in name:
         return valuation_signal(a500_pe, a500_pb, A500_PE_THRESHOLDS, A500_PB_THRESHOLDS)
     if "沪深300" in name or "沪深 300" in name:
         return valuation_signal(hs300_pe, hs300_pb, HS300_PE_THRESHOLDS, HS300_PB_THRESHOLDS)
+    if "纳斯达克" in name or "纳指" in name or "NASDAQ" in name.upper():
+        return nasdaq_signal
+    if "港股" in name or "恒生" in name or "红利低波" in name:
+        return hsi_signal
     return "暂无"
 
 
@@ -454,9 +616,27 @@ def dca_suggestion(valuation: str, deviation: float, target_pct: float) -> str:
     return "100%"
 
 
-def apply_dca_suggestions(funds: list, hs300_pe, hs300_pb, a500_pe, a500_pb) -> list:
+def apply_dca_suggestions(
+    funds: list,
+    hs300_pe,
+    hs300_pb,
+    a500_pe,
+    a500_pb,
+    bond_signal: str = "暂无",
+    hsi_signal: str = "暂无",
+    nasdaq_signal: str = "暂无",
+) -> list:
     for fund in funds:
-        signal = fund_valuation_signal(fund, hs300_pe, hs300_pb, a500_pe, a500_pb)
+        signal = fund_valuation_signal(
+            fund,
+            hs300_pe,
+            hs300_pb,
+            a500_pe,
+            a500_pb,
+            bond_signal=bond_signal,
+            hsi_signal=hsi_signal,
+            nasdaq_signal=nasdaq_signal,
+        )
         fund["valuation_signal"] = signal
         fund["dca_suggestion"] = dca_suggestion(
             signal,
@@ -466,7 +646,18 @@ def apply_dca_suggestions(funds: list, hs300_pe, hs300_pb, a500_pe, a500_pb) -> 
     return funds
 
 
-def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
+def update_market_callout(
+    hs300_pe,
+    hs300_pb,
+    a500_pe,
+    a500_pb,
+    bond_yield,
+    bond_signal="暂无",
+    hsi_dividend_signal="暂无",
+    hsi_trend_signal="暂无",
+    hsi_signal="暂无",
+    nasdaq_signal="暂无",
+):
     """将市场温度追加到数据库描述区（标题下方，表格上方）"""
     today = datetime.now(CST).date().strftime("%Y-%m-%d")
 
@@ -494,6 +685,9 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
         sig = _signal(spread, SPREAD_THRESHOLDS["low"], SPREAD_THRESHOLDS["high"],
                       low_label="🔴 股票偏贵", mid_label="🟡 正常", high_label="🟢 股票便宜")
         lines.append(f"📉 股债利差：{spread}%  {sig}")
+    lines.append(f"🏦 债券温度：10年国债收益率分位 {bond_signal}")
+    lines.append(f"🇭🇰 港股温度：恒生股息率 {hsi_dividend_signal} | 250日线 {hsi_trend_signal} | 综合 {hsi_signal}")
+    lines.append(f"🇺🇸 纳指温度：250日线/回撤 {nasdaq_signal}")
     # 综合建议
     lines.append(market_overall_signal(hs300_pe, hs300_pb, spread))
 
@@ -512,6 +706,7 @@ def update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield):
         )
 
     skip_keywords = ("📊 市场温度", "🏦 沪深300", "📈 中证A500", "📈 中证500", "📉 股债利差", "💡 综合建议",
+                     "🏦 债券温度", "🇭🇰 港股温度", "🇺🇸 纳指温度",
                      "沪深300 PE", "中证A500 PE", "———", "市盈率PE", "市净率PB", "💹 市盈率PE", "🏛 市净率PB")
     strategy_lines = [
         l for l in existing_desc.splitlines()
@@ -674,7 +869,21 @@ def main():
     a500_pe = fetch_index_pe("中证500")     # 中证A500 暂用中证500 PE/PB 作参考
     a500_pb = fetch_index_pb("中证500")
     bond_yield = fetch_bond_yield()
-    funds = apply_dca_suggestions(funds, hs300_pe, hs300_pb, a500_pe, a500_pb)
+    bond_signal = fetch_bond_yield_signal()
+    hsi_dividend_signal = fetch_hsi_dividend_signal()
+    hsi_trend_signal = fetch_hsi_trend_signal()
+    hsi_signal = combine_signals(hsi_dividend_signal, hsi_trend_signal)
+    nasdaq_signal = fetch_nasdaq_trend_signal()
+    funds = apply_dca_suggestions(
+        funds,
+        hs300_pe,
+        hs300_pb,
+        a500_pe,
+        a500_pb,
+        bond_signal=bond_signal,
+        hsi_signal=hsi_signal,
+        nasdaq_signal=nasdaq_signal,
+    )
 
     # 5. 更新 Notion
     print("正在更新 Notion...")
@@ -700,7 +909,18 @@ def main():
         time.sleep(0.3)
 
     # 6. 更新市场温度 callout
-    update_market_callout(hs300_pe, hs300_pb, a500_pe, a500_pb, bond_yield)
+    update_market_callout(
+        hs300_pe,
+        hs300_pb,
+        a500_pe,
+        a500_pb,
+        bond_yield,
+        bond_signal=bond_signal,
+        hsi_dividend_signal=hsi_dividend_signal,
+        hsi_trend_signal=hsi_trend_signal,
+        hsi_signal=hsi_signal,
+        nasdaq_signal=nasdaq_signal,
+    )
 
     # 7. 打印汇总
     print_summary(funds, total_value, total_daily_pnl)
