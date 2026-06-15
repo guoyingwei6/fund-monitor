@@ -590,9 +590,12 @@ def fund_valuation_signal(
     return "暂无"
 
 
-def dca_suggestion(valuation: str, deviation: float, target_pct: float) -> str:
+def dca_suggestion(valuation: str, deviation: float, target_pct: float, suggestion: str = "持有") -> str:
     """Suggest this period's contribution as a percentage of the base plan."""
     if target_pct == 0:
+        return "暂停"
+
+    if suggestion == "建议卖出":
         return "暂停"
 
     underweight = deviation <= -REBALANCE_THRESHOLD
@@ -649,6 +652,7 @@ def apply_dca_suggestions(
             signal,
             fund.get("deviation", 0),
             fund.get("target_pct", 0),
+            fund.get("suggestion", "持有"),
         )
     return funds
 
