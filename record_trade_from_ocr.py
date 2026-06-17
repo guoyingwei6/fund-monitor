@@ -238,6 +238,10 @@ def find_stacked_value_after_labels(text: str, labels: list[str]) -> str | None:
 
 def parse_float(value: str) -> float:
     cleaned = value.replace(",", "").replace("+", "").strip()
+    # Common OCR artifact: the Chinese unit "份" can be read as "1>".
+    artifact = re.search(r"([-+]?\d+\.\d{2})1>", cleaned)
+    if artifact:
+        return float(artifact.group(1))
     match = re.search(r"[-+]?\d+(?:\.\d+)?", cleaned)
     if match:
         return float(match.group(0))
@@ -259,6 +263,9 @@ def find_raw_number_after_labels(text: str, labels: list[str]) -> str | None:
                 return match.group(1)
     stacked = find_stacked_value_after_labels(text, labels)
     if stacked:
+        artifact = re.search(r"([-+]?\d+\.\d{2})1>", stacked)
+        if artifact:
+            return artifact.group(1)
         match = re.search(number, stacked)
         if match:
             return match.group(0)
