@@ -152,8 +152,96 @@ def compact(text: str) -> str:
     return re.sub(r"\s+", "", normalize_text(text))
 
 
+STACKED_FIELD_LABELS = {
+    "买入产品",
+    "卖出产品",
+    "交易产品",
+    "买入金额",
+    "卖出金额",
+    "赎回金额",
+    "交易金额",
+    "成交金额",
+    "确认金额",
+    "申请金额",
+    "申购金额",
+    "定投金额",
+    "支付金额",
+    "分红金额",
+    "付款方式",
+    "买入时间",
+    "卖出时间",
+    "交易时间",
+    "申请时间",
+    "下单时间",
+    "确认份额",
+    "成交份额",
+    "买入份额",
+    "卖出份额",
+    "份额变动",
+    "新增份额",
+    "确认净值",
+    "成交净值",
+    "买入净值",
+    "基金净值",
+    "当前净值",
+    "净值",
+    "手续费",
+    "确认时间",
+    "确认日期",
+    "订单号",
+    "持有金额",
+    "持有市值",
+    "持仓金额",
+    "持有份额",
+    "当前份额",
+}
+
+STACKED_SECTION_LABELS = {"买入信息", "卖出信息", "交易信息", "确认信息"}
+
+
+def text_lines(text: str) -> list[str]:
+    return [line.strip() for line in normalize_text(text).splitlines() if line.strip()]
+
+
+def normalize_label(line: str) -> str:
+    return re.sub(r"[:：\\s]+", "", line)
+
+
+def find_stacked_value_after_labels(text: str, labels: list[str]) -> str | None:
+    lines = text_lines(text)
+    normalized_labels = [normalize_label(label) for label in labels]
+    field_labels = {normalize_label(label) for label in STACKED_FIELD_LABELS}
+    section_labels = {normalize_label(label) for label in STACKED_SECTION_LABELS}
+    all_labels = field_labels | section_labels
+
+    for start, line in enumerate(lines):
+        if normalize_label(line) not in all_labels:
+            continue
+
+        label_run: list[str] = []
+        i = start
+        while i < len(lines) and normalize_label(lines[i]) in all_labels:
+            label = normalize_label(lines[i])
+            if label not in section_labels:
+                label_run.append(label)
+            i += 1
+
+        if not any(label in label_run for label in normalized_labels):
+            continue
+
+        values = lines[i:i + len(label_run) + 2]
+        for label, value in zip(label_run, values):
+            if label in normalized_labels:
+                return value
+    return None
+
+
 def parse_float(value: str) -> float:
-    return float(value.replace(",", "").replace("+", "").strip())
+    cleaned = value.replace(",", "").replace("+", "").strip()
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", cleaned)
+    if match:
+        return float(match.group(0))
+    return float(cleaned)
 
 
 def find_raw_number_after_labels(text: str, labels: list[str]) -> str | None:
@@ -169,6 +257,11 @@ def find_raw_number_after_labels(text: str, labels: list[str]) -> str | None:
             match = re.search(pattern, normalized, re.I) or re.search(pattern, joined, re.I)
             if match:
                 return match.group(1)
+    stacked = find_stacked_value_after_labels(text, labels)
+    if stacked:
+        match = re.search(number, stacked)
+        if match:
+            return match.group(0)
     return None
 
 
@@ -219,6 +312,10 @@ def find_date_after_labels(text: str, labels: list[str]) -> str | None:
         if match:
             parsed = parse_date(match.group(1), fallback="")
             return parsed or None
+    stacked = find_stacked_value_after_labels(text, labels)
+    if stacked:
+        parsed = parse_date(stacked, fallback="")
+        return parsed or None
     return None
 
 
@@ -227,6 +324,11 @@ def find_order_no(text: str) -> str | None:
     match = re.search(r"订单号[:：]?(\d{12,})", c)
     if match:
         return match.group(1)
+    stacked = find_stacked_value_after_labels(text, ["订单号"])
+    if stacked:
+        match = re.search(r"\d{12,}", stacked)
+        if match:
+            return match.group(0)
     return None
 
 
