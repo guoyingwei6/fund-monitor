@@ -1027,12 +1027,44 @@ def main():
                 b.get("plain_text", "") for b in db_resp.json().get("description", [])
             )
         desc = existing_desc if existing_desc.strip() else DEFAULT_STRATEGY_DESCRIPTION
+        if PAGES_URL and "盘中估值看板" not in desc and PAGES_URL not in desc:
+            if "<!-- MARKET_CALLOUT -->" in desc:
+                parts = desc.split("<!-- MARKET_CALLOUT -->", 1)
+                desc = f"{parts[0].rstrip()}\n🔗 盘中估值看板：{PAGES_URL}\n<!-- MARKET_CALLOUT -->{parts[1]}"
+            else:
+                desc = f"{desc.rstrip()}\n🔗 盘中估值看板：{PAGES_URL}"
+            try:
+                requests.patch(
+                    f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
+                    headers=NOTION_HEADERS,
+                    json={"description": [{"type": "text", "text": {"content": desc}}]},
+                    timeout=10,
+                )
+            except Exception:
+                pass
         sync_parent_page_strategy_callout(desc)
         return
 
     today = datetime.now(CST).date()
     if SKIP_NON_TRADE_DAY and not is_cn_trade_day(today):
-        print(f"[{datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S')}] {today} 不是 A 股交易日，跳过更新")
+        print(f"[{datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S')}] {today} 不是 A 股交易日，跳过净值更新")
+        if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+            print("  [提示] 手动触发执行，继续同步页面策略说明与看板 Embed 块...")
+            try:
+                db_resp = requests.get(
+                    f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
+                    headers=NOTION_HEADERS,
+                    timeout=10,
+                )
+                existing_desc = ""
+                if db_resp.status_code == 200:
+                    existing_desc = "".join(
+                        b.get("plain_text", "") for b in db_resp.json().get("description", [])
+                    )
+                desc = existing_desc if existing_desc.strip() else DEFAULT_STRATEGY_DESCRIPTION
+                sync_parent_page_strategy_callout(desc)
+            except Exception as e:
+                print(f"  [警告] 手动同步页面失败: {e}")
         return
 
     print(f"[{datetime.now(CST).strftime('%Y-%m-%d %H:%M:%S')}] 开始更新基金净值...")

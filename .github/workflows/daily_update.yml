@@ -6,6 +6,19 @@ on:
     # 此时天天基金当日净值已确认（T日15:00收盘，约18:00入库）
     - cron: "0 11 * * 1-5"
   workflow_dispatch: # 允许手动触发
+    inputs:
+      action:
+        description: "执行模式"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - "full"
+          - "sync_page"
+      force:
+        description: "非交易日强制更新净值"
+        type: boolean
+        default: false
 
 jobs:
   update:
@@ -25,4 +38,11 @@ jobs:
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           REBALANCE_THRESHOLD: "0.05"
-        run: python fund_monitor.py
+        run: |
+          if [ "${{ inputs.action }}" = "sync_page" ]; then
+            python fund_monitor.py --sync-page
+          elif [ "${{ inputs.force }}" = "true" ]; then
+            SKIP_NON_TRADE_DAY=false python fund_monitor.py
+          else
+            python fund_monitor.py
+          fi
