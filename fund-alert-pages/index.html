@@ -626,10 +626,13 @@
     return target.toString();
   }
   function pushBark(title, body) {
-    return fetch(barkEndpoint(config.barkUrl, title, body), { mode: "cors" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("Bark HTTP " + res.status);
-        return res.text();
+    var url = barkEndpoint(config.barkUrl, title, body);
+    return fetch(url, { mode: "no-cors" })
+      .then(function () {
+        return true;
+      })
+      .catch(function (error) {
+        throw new Error(error.message || "网络请求失败");
       });
   }
 
