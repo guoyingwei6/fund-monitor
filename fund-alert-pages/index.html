@@ -308,10 +308,7 @@
       <span class="dot"></span><span id="statusText">云端托管中</span>
     </div>
     <div class="tools">
-      <button class="btn icon-only" type="button" id="testBtn" title="发送测试推送" aria-label="发送测试推送">
-        <svg class="icon" data-icon="send" viewBox="0 0 24 24" aria-hidden="true"></svg>
-      </button>
-      <button class="btn icon-only" type="button" id="settingsBtn" title="设置" aria-label="设置">
+      <button class="btn icon-only" type="button" id="settingsBtn" title="看板设置" aria-label="看板设置">
         <svg class="icon" data-icon="settings" viewBox="0 0 24 24" aria-hidden="true"></svg>
       </button>
       <a class="btn icon-only" href="https://github.com/guoyingwei6/fund-monitor" target="_blank" rel="noopener noreferrer" title="访问 GitHub 仓库" aria-label="访问 GitHub 仓库">
@@ -367,44 +364,30 @@
 
 <dialog id="settings">
   <div class="dialog-head">
-    <h2>推送设置</h2>
+    <h2>看板设置</h2>
     <button class="btn icon-only ghost" type="button" id="closeSettingsBtn" title="关闭" aria-label="关闭">
       <svg class="icon" data-icon="x" viewBox="0 0 24 24" aria-hidden="true"></svg>
     </button>
   </div>
   <div class="dialog-body">
-    <div class="field">
-      <label for="barkUrl">Bark 推送地址</label>
-      <input type="password" id="barkUrl" placeholder="https://api.day.app/你的Key" autocomplete="off" spellcheck="false">
-      <div class="check" style="margin-top:8px">
-        <input type="checkbox" id="showBark"><label for="showBark" style="margin:0;font-weight:400">显示地址</label>
+    <div class="card" style="padding:14px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;font-size:13px;line-height:1.6;color:var(--muted);margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:6px;color:var(--ink);font-weight:600;margin-bottom:4px;">
+        <svg class="icon" data-icon="bell-ring" viewBox="0 0 24 24" aria-hidden="true" style="width:16px;height:16px;color:var(--brand);"></svg>
+        <span>云端免开机自动巡检中</span>
       </div>
-      <p class="hint">支持自建 Bark 服务，形如 https://你的域名/推送Key。</p>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label for="interval">轮询间隔（秒）</label>
-        <input type="number" id="interval" min="30" max="1800" step="10" value="60">
-      </div>
-      <div class="field">
-        <label for="level">推送级别</label>
-        <select id="level">
-          <option value="active">active（默认）</option>
-          <option value="timeSensitive">timeSensitive（时效性）</option>
-          <option value="critical">critical（关键）</option>
-        </select>
-      </div>
+      每个工作日 09:30–15:00，GitHub Actions 将在云端每 15 分钟自动巡检持仓涨跌，偏离阈值时通过 Bark 向手机发送异动预警。推送地址已由 GitHub 仓库 Secrets 加密托管，本网页不保存任何推送秘钥。
     </div>
     <div class="field">
-      <div class="check"><input type="checkbox" id="tradeOnly"><label for="tradeOnly" style="margin:0;font-weight:400">仅交易时段轮询</label></div>
-      <div class="check" style="margin-top:10px"><input type="checkbox" id="oncePerDay"><label for="oncePerDay" style="margin:0;font-weight:400">同一方向每日只提醒一次</label></div>
+      <label for="interval">页面自动刷新间隔（秒）</label>
+      <input type="number" id="interval" min="30" max="1800" step="10" value="60">
+      <p class="hint">当网页或 Notion 内嵌页面处于打开状态时，自动从天天基金拉取最新估值的间隔（最低 30 秒）。</p>
+    </div>
+    <div class="field">
+      <div class="check"><input type="checkbox" id="tradeOnly"><label for="tradeOnly" style="margin:0;font-weight:400">仅交易时段自动刷新</label></div>
     </div>
   </div>
   <div class="dialog-foot">
     <button class="btn ghost" type="button" id="resetFundsBtn" title="恢复为 Notion 默认持仓基金">恢复默认持仓</button>
-    <button class="btn" type="button" id="testPushBtn">
-      <svg class="icon" data-icon="send" viewBox="0 0 24 24" aria-hidden="true"></svg>发送测试
-    </button>
     <button class="btn primary" type="button" id="saveSettingsBtn">
       <svg class="icon" data-icon="check" viewBox="0 0 24 24" aria-hidden="true"></svg>保存设置
     </button>
@@ -480,9 +463,7 @@
   var LEGACY_CONFIG_KEY = "fundAlert.config.v1";
 
   var config = {
-    barkUrl: "",
     interval: 60,
-    level: "active",
     tradeOnly: true,
     oncePerDay: true,
     hiddenNotionCodes: {},
@@ -500,7 +481,6 @@
     statusPill: document.getElementById("statusPill"),
     statusText: document.getElementById("statusText"),
     toggleBtn: document.getElementById("toggleBtn"),
-    testBtn: document.getElementById("testBtn"),
     refreshBtn: document.getElementById("refreshBtn"),
     settingsBtn: document.getElementById("settingsBtn"),
     rows: document.getElementById("rows"),
@@ -515,16 +495,12 @@
     statTop: document.getElementById("statTop"),
     statBottom: document.getElementById("statBottom"),
     settings: document.getElementById("settings"),
-    barkUrl: document.getElementById("barkUrl"),
-    showBark: document.getElementById("showBark"),
     interval: document.getElementById("interval"),
-    level: document.getElementById("level"),
     tradeOnly: document.getElementById("tradeOnly"),
     oncePerDay: document.getElementById("oncePerDay"),
     closeSettingsBtn: document.getElementById("closeSettingsBtn"),
     resetFundsBtn: document.getElementById("resetFundsBtn"),
     saveSettingsBtn: document.getElementById("saveSettingsBtn"),
-    testPushBtn: document.getElementById("testPushBtn"),
     addBtn: document.getElementById("addBtn"),
     toast: document.getElementById("toast")
   };
@@ -532,20 +508,21 @@
   /* ── 存储 ─────────────────────────────────────── */
   function loadStore() {
     try {
-      var saved = JSON.parse(localStorage.getItem(CONFIG_KEY) || "null");
+      localStorage.removeItem(LEGACY_CONFIG_KEY);
+      var rawStore = localStorage.getItem(CONFIG_KEY);
+      var saved = JSON.parse(rawStore || "null");
       if (saved && typeof saved === "object") {
-        if (typeof saved.barkUrl === "string") config.barkUrl = saved.barkUrl;
+        if (saved.barkUrl) {
+          delete saved.barkUrl;
+          try { localStorage.setItem(CONFIG_KEY, JSON.stringify(saved)); } catch (e) {}
+        }
         if (saved.interval) config.interval = Number(saved.interval) || 60;
-        if (saved.level) config.level = saved.level;
         if (typeof saved.tradeOnly === "boolean") config.tradeOnly = saved.tradeOnly;
         if (typeof saved.oncePerDay === "boolean") config.oncePerDay = saved.oncePerDay;
         if (saved.hiddenNotionCodes && typeof saved.hiddenNotionCodes === "object") {
           config.hiddenNotionCodes = saved.hiddenNotionCodes;
         }
         if (Array.isArray(saved.funds) && saved.funds.length) config.funds = saved.funds;
-      } else {
-        var legacy = JSON.parse(localStorage.getItem(LEGACY_CONFIG_KEY) || "null");
-        if (legacy && typeof legacy.barkUrl === "string" && legacy.barkUrl) config.barkUrl = legacy.barkUrl;
       }
       logs = JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || [];
       fired = JSON.parse(localStorage.getItem(FIRED_KEY) || "{}") || {};
@@ -645,15 +622,10 @@
   /* 从 URL 参数注入配置（支持注入 Bark 地址或一键重置默认持仓） */
   function absorbUrlParams() {
     var params = new URLSearchParams(location.search);
-    if (!params.has("bark") && !params.has("defaults") && !params.has("reset")) {
+    if (!params.has("defaults") && !params.has("reset")) {
       params = new URLSearchParams(location.hash.replace(/^#/, ""));
     }
     var changed = false;
-    var barkValue = (params.get("bark") || "").trim();
-    if (barkValue) {
-      config.barkUrl = barkValue;
-      changed = true;
-    }
     if (params.get("defaults") === "1" || params.get("reset") === "1") {
       config.funds = DEFAULT_FUNDS.slice();
       changed = true;
@@ -749,36 +721,6 @@
             navDate: String(item.PDATE || "")
           };
         });
-      });
-  }
-
-  /* ── Bark ─────────────────────────────────────── */
-  function barkEndpoint(rawUrl, title, body) {
-    var raw = String(rawUrl || "").trim();
-    if (!/^https:\/\//i.test(raw)) throw new Error("请先在设置里填写 Bark 推送地址");
-    var parsed = new URL(raw);
-    var key = parsed.pathname.split("/").filter(Boolean)[0];
-    if (!key) throw new Error("Bark 地址里缺少推送 Key");
-    var target = new URL(parsed.origin + "/" + encodeURIComponent(key) + "/" + encodeURIComponent(title) + "/" + encodeURIComponent(body));
-    if (config.level) target.searchParams.set("level", config.level);
-    target.searchParams.set("group", "基金提醒");
-    target.searchParams.set("icon", "https://www.eastmoney.com/favicon.ico");
-    try {
-      var currentUrl = location.href.split("#")[0].split("?")[0];
-      if (/^https?:\/\//i.test(currentUrl)) {
-        target.searchParams.set("url", currentUrl);
-      }
-    } catch (e) {}
-    return target.toString();
-  }
-  function pushBark(title, body) {
-    var url = barkEndpoint(config.barkUrl, title, body);
-    return fetch(url, { mode: "no-cors" })
-      .then(function () {
-        return true;
-      })
-      .catch(function (error) {
-        throw new Error(error.message || "网络请求失败");
       });
   }
 
@@ -1089,8 +1031,8 @@
       main.appendChild(strong);
       main.appendChild(document.createTextNode(" " + fmtPct(log.rate)));
       var badge = document.createElement("span");
-      badge.className = "badge " + (log.sent === false ? "failed" : "sent");
-      badge.textContent = log.sent === false ? "推送失败" : "已推送";
+      badge.className = "badge sent";
+      badge.textContent = "已触发";
       row.appendChild(time);
       row.appendChild(main);
       row.appendChild(badge);
@@ -1126,21 +1068,9 @@
     var action = trigger === "up" ? "考虑卖出" : "考虑买入";
     var threshold = trigger === "up" ? fund.upPct : fund.downPct;
     var title = (fund.name || fund.code) + " " + direction + " " + fmtPct(quote.estChangeRate);
-    var body = [
-      "现估值 " + fmtNum(quote.estNav) + "（" + fmtPct(quote.estChangeRate) + "）",
-      "触发阈值 ±" + threshold + "%",
-      "估值时间 " + (quote.quoteTime || "—"),
-      action
-    ].join("\n");
-    pushBark(title, body).then(function () {
-      addLog(fund, quote, trigger, true, now);
-      toast(title);
-    }).catch(function (error) {
-      addLog(fund, quote, trigger, false, now);
-      toast("推送失败：" + error.message, "error");
-    }).then(function () {
-      saveFired();
-    });
+    addLog(fund, quote, trigger, true, now);
+    toast(title);
+    saveFired();
   }
   function addLog(fund, quote, trigger, sent, now) {
     logs.unshift({
@@ -1218,11 +1148,8 @@
 
   /* ── 设置 ─────────────────────────────────────── */
   function openSettings() {
-    el.barkUrl.value = config.barkUrl || "";
     el.interval.value = config.interval;
-    el.level.value = config.level;
     el.tradeOnly.checked = config.tradeOnly;
-    el.oncePerDay.checked = config.oncePerDay;
     if (typeof el.settings.showModal === "function") el.settings.showModal();
     else el.settings.setAttribute("open", "");
   }
@@ -1231,16 +1158,8 @@
     else el.settings.removeAttribute("open");
   }
   function saveSettings() {
-    var raw = el.barkUrl.value.trim();
-    if (raw && !/^https:\/\//i.test(raw)) {
-      toast("Bark 地址需要以 https:// 开头", "error");
-      return;
-    }
-    config.barkUrl = raw;
     config.interval = Math.min(1800, Math.max(30, Number(el.interval.value) || 60));
-    config.level = el.level.value;
     config.tradeOnly = el.tradeOnly.checked;
-    config.oncePerDay = el.oncePerDay.checked;
     saveConfig();
     closeSettings();
     toast("设置已保存");
@@ -1279,9 +1198,6 @@
       });
     });
   }
-  el.showBark.addEventListener("change", function () {
-    el.barkUrl.type = el.showBark.checked ? "text" : "password";
-  });
   el.addBtn.addEventListener("click", function () {
     config.funds.push({ code: "", name: "新自选基金", layer: "自选", upPct: 1.5, downPct: 1.5, enabled: true, source: "custom" });
     renderRows();
@@ -1294,24 +1210,9 @@
     renderLogs();
     renderStats();
   });
-  el.testBtn.addEventListener("click", function () { sendTest(); });
-  el.testPushBtn.addEventListener("click", function () {
-    var raw = el.barkUrl.value.trim();
-    if (!raw) { toast("请先填写 Bark 推送地址", "error"); return; }
-    var saved = config.barkUrl;
-    config.barkUrl = raw;
-    sendTest().then(function () { config.barkUrl = saved; }, function () { config.barkUrl = saved; });
-  });
   el.settings.addEventListener("click", function (event) {
     if (event.target === el.settings) closeSettings();
   });
-
-  function sendTest() {
-    var now = shanghaiNow();
-    return pushBark("盘中基金提醒 · 测试", "推送通道正常\n" + now.date + " " + now.clock)
-      .then(function () { toast("测试推送已发送"); })
-      .catch(function (error) { toast("测试推送失败：" + error.message, "error"); });
-  }
 
   /* ── 启动 ─────────────────────────────────────── */
   loadStore();
