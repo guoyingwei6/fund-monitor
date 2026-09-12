@@ -1,0 +1,55 @@
+name: 基金盘中异动监控与提醒
+
+on:
+  schedule:
+    # A 股交易时段自动巡检（工作日 09:30-11:30, 13:00-15:00 CST）
+    # 对应 UTC 时间 01:15-03:30 与 05:00-07:15，每 15 分钟触发一次
+    - cron: "*/15 1-3,5-7 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      force_check:
+        description: "是否强制检查（忽略休市/非交易时段判断）"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: fund-intraday-alert
+  cancel-in-progress: false
+
+jobs:
+  intraday-alert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4.2.2
+
+      - name: 设置 Python 运行环境
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: 安装 Python 依赖
+        run: pip install -r requirements.txt
+
+      - name: 获取当前东八区日期
+        id: date
+        run: echo "date=$(TZ='Asia/Shanghai' date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: 恢复今日告警状态缓存
+        uses: actions/cache@v4
+        with:
+          path: .alert_state.json
+          key: alert-state-${{ steps.date.outputs.date }}-${{ github.run_id }}
+          restore-keys: |
+            alert-state-${{ steps.date.outputs.date }}-
+
+      - name: 执行盘中监控与 Bark 推送检测
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          BARK_URL: ${{ secrets.BARK_URL }}
+          STOCK_ALERT_THRESHOLD: "1.5"
+          BOND_ALERT_THRESHOLD: "0.5"
+          FORCE_CHECK: ${{ inputs.force_check || 'false' }}
+        run: python fund_intraday_alert.py
