@@ -1,18 +1,25 @@
 # 基金组合监控 · Fund Monitor
 
-> 基于天天基金公开接口，每日自动同步基金净值与再平衡建议到 Notion，附 A 股市场估值温度。
+> 个人基金全流程管理套件：盘中实时估值与 Bark 异动预警、GitHub Pages 在线看板（支持 Notion 原生 Embed 预览）、盘后净值自动归档与再平衡建议、支付宝截图流水 OCR 记账。
 
 ---
 
 ## 预览
 
-![Notion 基金组合监控](docs/preview.png)
+![Notion 基金组合监控与盘中看板](docs/preview.png)
+
+> 在线盘中估值看板：[https://guoyingwei6.github.io/fund-monitor/](https://guoyingwei6.github.io/fund-monitor/)
 
 ---
 
 ## 项目介绍
 
-个人基金组合的自动化监控工具。持有的基金每天收盘后净值自动更新到 Notion 数据库，同时根据目标配置比例计算偏离情况，给出买入 / 卖出 / 持有建议。无需手动查询，无需手动计算，打开 Notion 一眼看完。
+个人基金组合的自动化管理套件。涵盖**盘中监控预警**、**在线实时估值看板**、**盘后数据沉淀与再平衡**、**交易流水 OCR 自动录入**四大完整链路：
+
+1. **盘中异动监控**：交易时间内每 15 分钟云端自动巡检持仓涨跌，偏离阈值时通过 Bark 向手机实时报警，附带点击直达看板链接。
+2. **实时估值看板**：GitHub Pages 静态看板，支持电脑与手机浏览器，并支持通过 Notion 的 `/embed` 块直接内嵌在投资主页中实时预览。
+3. **盘后自动归档**：每个工作日收盘后自动抓取天天基金官方确认净值，写入 Notion 数据库并根据股债配置比例生成再平衡建议与市场估值温度。
+4. **交易流水记账**：手机截屏支付宝交易记录后，通过快捷指令 OCR 自动解析买入/卖出/分红流水并录入 Notion，为未来计算 XIRR 真实年化收益率留存完整现金流。
 
 如果需要让 Codex 进一步解释基金理财知识、结合知识库做组合复盘、制定定投或再平衡执行计划，请参考 [Codex Finance Assistant](docs/codex-finance-assistant.md)。
 
@@ -42,15 +49,19 @@
 
 ## 主要特点
 
+- **盘中预警提醒** — 交易日盘中每 15 分钟通过 GitHub Actions 自动巡检估值，涨跌超预设阈值自动走 Bark 发送通知
+- **直达看板链接** — Bark 通知携带专属 URL，手机轻点横幅通知直接拉起 Safari 打开实时看板
+- **在线估值看板** — 部署于 GitHub Pages，支持多设备访问，支持恢复默认持仓与本地自定义调控
+- **Notion 嵌入预览** — 支持在 Notion 父页面中作为原生 `/embed` 块内嵌展示，并在每日同步时自动挂载，一眼看全盘中动态
 - **自动更新净值** — 每个工作日晚上 7 点通过 GitHub Actions 自动运行，拉取天天基金最新确认净值（T+1）
 - **实时配置比例** — 自动计算每只基金的实际持仓占比，与目标占比对比
 - **再平衡提醒** — 偏离目标超过 5%（可配置）时，标记「建议买入」或「建议卖出」并显示调仓金额
 - **市场估值温度** — 每日抓取沪深 300、中证 A500（参考中证 500）PE 值，低估 🟢 / 正常 🟡 / 高估 🔴
-- **策略说明保留** — 自动维护 Notion 数据库描述区和父页面正文的长期配置说明，并在下方刷新市场温度
+- **策略说明保留** — 自动维护 Notion 数据库描述区和父页面正文的长期配置说明，采用隔离标桩精准替换市场温度
 - **完全 Notion 集成** — 净值、涨跌幅、盈亏、建议均写入 Notion 数据库，支持表格和饼图视图
 - **交易流水记录** — 支持把支付宝基金截图 OCR 文本写入 Notion「交易流水」，为后续 XIRR 年化收益率计算保留现金流
 - **截图导入去重** — 买入 / 卖出记录优先按订单号去重；待确认记录确认后会更新原记录，已确认记录重复导入会跳过
-- **零运维** — GitHub Actions 免费定时任务，无需服务器
+- **零运维 & 秒级运行** — GitHub Actions 免费定时调度，盘中监控剥离重型依赖，依赖安装压缩至 1 秒级
 
 ---
 
@@ -58,10 +69,13 @@
 
 | 层次 | 技术 |
 |------|------|
-| 数据源 | 天天基金（东方财富）公开 API |
-| 指数估值 | akshare（乌龟量化数据） |
-| 数据存储展示 | Notion Database API |
-| 自动化调度 | GitHub Actions（每工作日 19:00 CST） |
+| 盘后净值数据 | 天天基金（东方财富）公开 API |
+| 盘中估算数据 | 东方财富移动端行情 API（GSZ / GSZZL / GZTIME） |
+| 指数宏观温度 | 沪深 300 / 中证 500 / 10年国债收益率 / 港美股趋势 |
+| 移动端推送 | Bark（POST JSON + 自动 GET 降级回退） |
+| 实时看板前端 | GitHub Pages（轻量 HTML5 / CSS3 / Vanilla JS） |
+| 数据存储展示 | Notion Database API & Block API |
+| 自动化调度 | GitHub Actions（盘中 15 分钟巡检 + 盘后 19:00 CST 归档） |
 | 运行环境 | Python 3.11 |
 
 ---
@@ -136,8 +150,12 @@ python fund_monitor.py
 
 1. Fork 或 push 到你自己的 GitHub 仓库
 2. 进入仓库 **Settings → Secrets and variables → Actions**
-3. 添加 Secret：`NOTION_TOKEN` = 你的 Notion Token
-4. 之后每个工作日晚上 7 点自动运行，也可在 Actions 页面手动触发
+3. 添加 Secrets 环境变量：
+   - `NOTION_TOKEN`：你的 Notion 集成 Token（用于读取持仓和盘后同步）
+   - `BARK_URL`：你的 Bark 推送地址（形如 `https://bark.example.com/your_key/`，用于盘中异动通知）
+4. 系统自动调度两条核心流水线：
+   - **盘中异动监控** (`intraday_alert.yml`)：交易日 09:30-15:00 每 15 分钟自动巡检持仓，超阈值时向 Bark 发送通知。
+   - **盘后净值更新** (`daily_update.yml`)：每个工作日 19:00 CST 自动拉取收盘确认净值、同步再平衡与市场温度、自动更新 Notion 父页面 Embed 实时看板。
 
 ### 4. 可选配置
 
@@ -146,6 +164,13 @@ python fund_monitor.py
 ```bash
 # 再平衡触发阈值，默认 5%（偏离超过此值才提示调仓）
 export REBALANCE_THRESHOLD=0.05
+
+# 盘中异动监控默认阈值（单位：百分比，如 1.5 表示 ±1.5%）
+export ALERT_THRESHOLD_UP=1.5
+export ALERT_THRESHOLD_DOWN=1.5
+
+# 盘中实时看板部署地址（用于 Bark 推送直达跳转与 Notion 嵌入）
+export PAGES_URL=https://guoyingwei6.github.io/fund-monitor/
 ```
 
 定投建议不会改变长期目标占比，只用于调节新增资金。执行优先级是先看「操作建议」，再看「估值信号」：
@@ -218,6 +243,17 @@ python record_trade_from_ocr.py --ocr-file ocr.txt --no-update-holdings
 ---
 
 ## 版本更新日志
+
+### v2.0.0 · 2026-09-12
+- 新增：GitHub Actions 盘中异动监控与 Bark 实时推送链路 (`fund_intraday_alert.py` + `intraday_alert.yml`)，每 15 分钟自动巡检持仓涨跌
+- 新增：GitHub Pages 独立响应式盘中估值看板 (`fund-alert-pages/`)，支持多终端查阅与实时估值刷新
+- 新增：Notion 原生 Embed 区块内嵌实时看板支持，同步脚本自动挂载 Embed 区块，实现 Notion 内直接交互预览
+- 优化：Bark 升级为 POST JSON 传输与自动 GET 回退，通知携带跳转链接，轻点直接拉起实时看板
+- 优化：盘中脚本剥离重型 `akshare` 依赖，GitHub Actions 依赖安装压缩至 1 秒级，节省 Runner 资源
+- 优化：增加 QDII 标的白天股指期货估算特别提示，防范海外时差误判
+- 优化：Notion 描述区引入结构化标桩（`<!-- MARKET_CALLOUT -->`），杜绝重复堆叠历史说明
+- 优化：天天基金空增长率防御性解析（`safe_float`），防止因除息分红等特殊净值抛异常漏更
+- 测试：补全全套单元测试套件（20 项测试覆盖交易状态机、Bark 回退、再平衡公式、Notion Embed 幂等创建）
 
 ### v1.5.0 · 2026-06-15
 - 新增：Notion「交易流水」数据库支持，用于记录买入 / 卖出 / 分红 / 持仓快照
