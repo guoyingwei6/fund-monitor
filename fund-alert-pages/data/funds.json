@@ -1,0 +1,42 @@
+{
+  "updated_at": "2026-09-12 12:41:21",
+  "source": "notion",
+  "funds": [
+    {
+      "code": "000015",
+      "name": "华夏纯债债券A",
+      "layer": "债券层",
+      "upPct": 0.5,
+      "downPct": 0.5,
+      "enabled": true,
+      "source": "notion"
+    },
+    {
+      "code": "022459",
+      "name": "易方达中证A500ETF联接A",
+      "layer": "股票层",
+      "upPct": 1.5,
+      "downPct": 1.5,
+      "enabled": true,
+      "source": "notion"
+    },
+    {
+      "code": "016452",
+      "name": "南方纳斯达克100指数发起(QDII)A",
+      "layer": "股票层",
+      "upPct": 2.0,
+      "downPct": 2.0,
+      "enabled": true,
+      "source": "notion"
+    },
+    {
+      "code": "021457",
+      "name": "易方达港股通红利低波ETF联接A",
+      "layer": "股票层",
+      "upPct": 1.5,
+      "downPct": 1.5,
+      "enabled": true,
+      "source": "notion"
+    }
+  ]
+}

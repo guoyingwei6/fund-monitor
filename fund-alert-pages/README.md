@@ -1,26 +1,27 @@
 # 盘中基金提醒 GitHub Pages
 
-纯静态页面，不需要服务器、Cloudflare Worker 或访问令牌。
+纯静态响应式看板，支持电脑与手机浏览器访问，并完美支持内嵌于 Notion 作为 `/embed` 块实时预览。
 
 ## 功能
 
-- 纯客户端运行：东方财富移动端盘中估值公开接口（支持 CORS），无需后端服务。
-- 预设 Notion 组合中的 4 只基金（华夏纯债、易方达A500联接、南方纳斯达克100QDII、易方达港股通红利低波）。
-- 涨超 / 跌超阈值双向刻度展示与触发提醒，支持同一方向每个交易日仅提醒一次。
-- 配置完全保存在浏览器本地 `localStorage`，避免将个人 Bark 推送 Key 泄露到公共仓库。
-- 支持通过 URL Hash 快速导入 Bark 地址，例如：`#bark=https://bark.guoyingwei.top/your-key/Body`。
+- **双轨基金同步**：自动异步拉取 Notion 导出的 `data/funds.json`（标记为 `[Notion主仓]`），并在 Notion 新增持仓时自动同步展示；支持在本地点击「添加自选基金」（标记为 `[自选观察]`），自选标的仅存于当前浏览器，不污染 Notion 核心库。
+- **真实云端状态指示**：清晰呈现 GitHub Actions 云端哨兵的巡检状态（交易时段自动巡检 / 休市中准备就绪），彻底废弃容易造成误解的“未监控”与“开始监控”。
+- **休市昨收自适应**：非交易时段或周末自动回退展示上一交易日官方确认净值与涨跌（标有 `昨收`），杜绝页面全屏空白破折号。
+- **可视化走势与刻度**：涨超 / 跌超阈值双向刻度展示，当前涨跌幅动态色彩提示。
+- **Notion 内嵌优化**：检测到 iframe 容器时自动调整边距与排版，与 Notion 页面无缝融合。
+- **快速导入 Bark 地址**：支持通过 URL Hash 快速导入 Bark 地址，例如：`#bark=https://bark.guoyingwei.top/your-key/Body`。
 
 ## 使用
 
 1. 直接在浏览器打开 `index.html` 或通过 GitHub Pages 访问。
 2. 首次进入可通过点击右上角齿轮图标配置 Bark 地址，或通过 `#bark=https://...` 链接一键导入。
 3. 根据需要微调各基金的涨跌提醒阈值（百分比）。
-4. 点击右上角「开始监控」并保持页面打开即可。
+4. 云端监控已完全托管给 GitHub Actions（每个工作日交易时段每 15 分钟自动在后台巡检并推送 Bark），无需常驻打开网页。打开本页面可随时作为实时看板查阅最新估值与走势。
 
 ## 部署
 
-仓库中已配置 `.github/workflows/fund-alert-pages.yml`，且仓库已开启 GitHub Actions Pages 构建。推送到 `main` 分支后，GitHub Actions 会自动部署至 `https://guoyingwei6.github.io/fund-monitor/`。
+仓库已配置 `.github/workflows/fund-alert-pages.yml`。推送到 `main` 分支或每日净值同步完成后，GitHub Actions 会自动部署至 `https://guoyingwei6.github.io/fund-monitor/`。
 
 ## 数据与限制
 
-估值来自天天基金移动端公开接口。它是估算值，可能与最终确认净值有偏差。收盘后估算字段为空，页面显示 `-`。由于是纯静态页面，Bark 提醒依赖浏览器页面保持打开；后台标签页可能被浏览器节流，不适合作为无人值守的强实时提醒。
+估值来自东方财富移动端公开接口。盘中为估算值，休市后自适应回退展示上一交易日确认净值。云端哨兵由 GitHub Actions 负责，超阈值通过 Bark 直达手机，兼具实时性与免维护体验。

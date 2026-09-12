@@ -10,6 +10,7 @@ import json
 import time
 import requests
 from datetime import datetime, date, timezone, timedelta
+from typing import Any
 
 # 东八区时区
 CST = timezone(timedelta(hours=8))
@@ -165,6 +166,55 @@ def get_notion_funds() -> list:
         })
 
     return funds
+
+
+def export_pages_funds(funds: list[dict], output_path: str | None = None) -> str:
+    """将 Notion 基金持仓导出为供 GitHub Pages 看板静态加载的 funds.json（仅公开代码、名称、资产层，不含敏感数据）。"""
+    if output_path is None:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        output_path = os.path.join(base_dir, "fund-alert-pages", "data", "funds.json")
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    items = []
+    for f in funds:
+        code = str(f.get("fund_code", "")).strip()
+        name = str(f.get("fund_name", "")).strip()
+        layer = str(f.get("asset_layer", "")).strip()
+        if not code or not name:
+            continue
+
+        if "债" in layer or "债" in name:
+            up_pct = 0.5
+            down_pct = 0.5
+        elif any(k in name for k in ("QDII", "纳斯达克", "标普")):
+            up_pct = 2.0
+            down_pct = 2.0
+        else:
+            up_pct = 1.5
+            down_pct = 1.5
+
+        items.append({
+            "code": code,
+            "name": name,
+            "layer": layer,
+            "upPct": up_pct,
+            "downPct": down_pct,
+            "enabled": True,
+            "source": "notion",
+        })
+
+    payload = {
+        "updated_at": datetime.now(CST).strftime("%Y-%m-%d %H:%M:%S"),
+        "source": "notion",
+        "funds": items,
+    }
+
+    with open(output_path, "w", encoding="utf-8") as fp:
+        json.dump(payload, fp, ensure_ascii=False, indent=2)
+
+    print(f"[Pages 导出] 已成功导出 {len(items)} 只 Notion 持仓基金至 {output_path}")
+    return output_path
 
 
 def ensure_notion_schema() -> None:
@@ -1014,8 +1064,24 @@ def main():
 
     ensure_notion_schema()
 
+    if "--export-funds" in sys.argv:
+        print("正在导出 Notion 持仓至 Pages 数据文件...")
+        try:
+            funds = get_notion_funds()
+            if funds:
+                export_pages_funds(funds)
+        except Exception as e:
+            print(f"  [错误] 导出失败: {e}")
+        return
+
     if "--sync-page" in sys.argv or "--sync-strategy" in sys.argv:
         print("正在同步 Notion 页面策略说明与盘中看板 Embed 预览块...")
+        try:
+            funds = get_notion_funds()
+            if funds:
+                export_pages_funds(funds)
+        except Exception as e:
+            print(f"  [警告] 导出 Pages 基金数据失败: {e}")
         db_resp = requests.get(
             f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
             headers=NOTION_HEADERS,
@@ -1051,6 +1117,12 @@ def main():
         if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
             print("  [提示] 手动触发执行，继续同步页面策略说明与看板 Embed 块...")
             try:
+                funds = get_notion_funds()
+                if funds:
+                    export_pages_funds(funds)
+            except Exception as e:
+                print(f"  [警告] 导出 Pages 基金数据失败: {e}")
+            try:
                 db_resp = requests.get(
                     f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
                     headers=NOTION_HEADERS,
@@ -1075,6 +1147,11 @@ def main():
         print("Notion 中未找到基金数据，请检查数据库 ID 和权限")
         return
     print(f"读取到 {len(funds)} 只基金")
+
+    try:
+        export_pages_funds(funds)
+    except Exception as e:
+        print(f"  [警告] 导出 Pages 基金数据失败: {e}")
 
     # 2. 逐一获取净值
     for fund in funds:

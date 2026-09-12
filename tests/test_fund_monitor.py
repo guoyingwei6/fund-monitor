@@ -1,4 +1,7 @@
 import unittest
+import json
+import tempfile
+import os
 from unittest.mock import patch, MagicMock
 
 from fund_monitor import (
@@ -7,6 +10,7 @@ from fund_monitor import (
     calculate_rebalancing,
     valuation_signal,
     sync_parent_page_strategy_callout,
+    export_pages_funds,
     PAGES_URL,
     HS300_PE_THRESHOLDS,
     HS300_PB_THRESHOLDS,
@@ -156,6 +160,40 @@ class FundMonitorTest(unittest.TestCase):
 
         # 已存在 embed 块时，只更新说明，不重复创建 embed
         self.assertEqual(mock_patch.call_count, 1)
+
+    def test_export_pages_funds(self) -> None:
+        funds = [
+            {"fund_code": "000015", "fund_name": "华夏纯债", "asset_layer": "债券层"},
+            {"fund_code": "022459", "fund_name": "易方达A500", "asset_layer": "股票层"},
+            {"fund_code": "016452", "fund_name": "南方纳斯达克100(QDII)", "asset_layer": "股票层"},
+            {"fund_code": "", "fund_name": "无效基金", "asset_layer": "现金"},
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_path = os.path.join(tmpdir, "funds.json")
+            res = export_pages_funds(funds, output_path=out_path)
+            self.assertEqual(res, out_path)
+            self.assertTrue(os.path.exists(out_path))
+
+            with open(out_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            self.assertEqual(data["source"], "notion")
+            self.assertIn("updated_at", data)
+            items = data["funds"]
+            self.assertEqual(len(items), 3)  # 空代码已被安全过滤
+
+            # 债券层默认 0.5%
+            self.assertEqual(items[0]["code"], "000015")
+            self.assertEqual(items[0]["upPct"], 0.5)
+            self.assertEqual(items[0]["source"], "notion")
+
+            # 普通股票层默认 1.5%
+            self.assertEqual(items[1]["code"], "022459")
+            self.assertEqual(items[1]["upPct"], 1.5)
+
+            # QDII 默认 2.0%
+            self.assertEqual(items[2]["code"], "016452")
+            self.assertEqual(items[2]["upPct"], 2.0)
 
 
 if __name__ == "__main__":

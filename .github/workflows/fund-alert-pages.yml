@@ -7,6 +7,10 @@ on:
       - "fund-alert-pages/**"
       - ".github/workflows/fund-alert-pages.yml"
   workflow_dispatch:
+  workflow_run:
+    workflows: ["每日基金净值更新"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read

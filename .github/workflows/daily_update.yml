@@ -20,6 +20,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: write
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -45,4 +48,16 @@ jobs:
             SKIP_NON_TRADE_DAY=false python fund_monitor.py
           else
             python fund_monitor.py
+          fi
+
+      - name: 检查并同步 Notion 最新持仓至 Pages 静态数据
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -f fund-alert-pages/data/funds.json ] && ! git diff --quiet fund-alert-pages/data/funds.json; then
+            git add fund-alert-pages/data/funds.json
+            git commit -m "chore(pages): 自动同步 Notion 持仓数据至看板 [skip ci]"
+            git push
+          else
+            echo "Pages 持仓数据未发生变更"
           fi

@@ -161,6 +161,8 @@
   .code-input:hover { border-color: var(--line); }
   .code-input:focus { outline: none; border-color: var(--accent); background: var(--surface); color: var(--ink); }
   .tag { padding: 1px 6px; border-radius: 4px; background: var(--line); color: var(--ink-2); font-size: 11px; }
+  .tag.tag-notion { background: rgba(37, 99, 235, 0.1); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.25); font-weight: 550; }
+  .tag.tag-custom { background: rgba(217, 119, 6, 0.1); color: #b45309; border: 1px solid rgba(217, 119, 6, 0.25); font-weight: 550; }
 
   .rate { text-align: right; }
   .rate-value { font-size: 20px; font-weight: 650; line-height: 1.1; }
@@ -287,22 +289,19 @@
         <p id="sessionText">—</p>
       </div>
     </div>
-    <div class="status-pill" data-state="idle" id="statusPill">
-      <span class="dot"></span><span id="statusText">未监控</span>
+    <div class="status-pill" data-state="open" id="statusPill" title="GitHub Actions 云端自动巡检，超阈值推送 Bark，无需保持网页打开">
+      <span class="dot"></span><span id="statusText">云端托管中</span>
     </div>
     <div class="tools">
       <button class="btn icon-only" type="button" id="testBtn" title="发送测试推送" aria-label="发送测试推送">
         <svg class="icon" data-icon="send" viewBox="0 0 24 24" aria-hidden="true"></svg>
       </button>
-      <button class="btn icon-only" type="button" id="refreshBtn" title="立即刷新估值" aria-label="立即刷新估值">
-        <svg class="icon" data-icon="refresh-cw" viewBox="0 0 24 24" aria-hidden="true"></svg>
-      </button>
       <button class="btn icon-only" type="button" id="settingsBtn" title="设置" aria-label="设置">
         <svg class="icon" data-icon="settings" viewBox="0 0 24 24" aria-hidden="true"></svg>
       </button>
-      <button class="btn accent" type="button" id="toggleBtn">
-        <svg class="icon" data-icon="play" viewBox="0 0 24 24" aria-hidden="true"></svg>
-        <span class="tool-label">开始监控</span>
+      <button class="btn primary" type="button" id="refreshBtn" title="立即刷新行情数据">
+        <svg class="icon" data-icon="refresh-cw" viewBox="0 0 24 24" aria-hidden="true"></svg>
+        <span class="tool-label">刷新行情</span>
       </button>
     </div>
   </header>
@@ -319,12 +318,12 @@
       <h2>监控基金</h2>
       <span class="count" id="fundCount">0 只</span>
       <span class="spacer"></span>
-      <button class="btn" type="button" id="addBtn">
-        <svg class="icon" data-icon="plus" viewBox="0 0 24 24" aria-hidden="true"></svg>添加基金
+      <button class="btn" type="button" id="addBtn" title="添加本地自选观察基金（仅保存在当前浏览器，不写入 Notion 资产库）">
+        <svg class="icon" data-icon="plus" viewBox="0 0 24 24" aria-hidden="true"></svg>添加自选基金
       </button>
     </div>
     <div class="rows" id="rows"></div>
-    <div class="empty" id="rowsEmpty" hidden>还没有监控项，先添加一只基金。</div>
+    <div class="empty" id="rowsEmpty" hidden>还没有监控项，点击上方“添加自选基金”或等待 Notion 持仓同步。</div>
   </section>
 
   <section class="section">
@@ -444,10 +443,10 @@
 
   /* ── 默认配置：Notion 中的四只持仓 ───────────── */
   var DEFAULT_FUNDS = [
-    { code: "000015", name: "华夏纯债债券A", layer: "债券层", upPct: 0.5, downPct: 0.5, enabled: true },
-    { code: "022459", name: "易方达中证A500ETF联接A", layer: "股票层", upPct: 1.5, downPct: 1.5, enabled: true },
-    { code: "016452", name: "南方纳斯达克100指数发起(QDII)A", layer: "股票层", upPct: 2, downPct: 2, enabled: true },
-    { code: "021457", name: "易方达港股通红利低波ETF联接A", layer: "股票层", upPct: 1.5, downPct: 1.5, enabled: true }
+    { code: "000015", name: "华夏纯债债券A", layer: "债券层", upPct: 0.5, downPct: 0.5, enabled: true, source: "notion" },
+    { code: "022459", name: "易方达中证A500ETF联接A", layer: "股票层", upPct: 1.5, downPct: 1.5, enabled: true, source: "notion" },
+    { code: "016452", name: "南方纳斯达克100指数发起(QDII)A", layer: "股票层", upPct: 2, downPct: 2, enabled: true, source: "notion" },
+    { code: "021457", name: "易方达港股通红利低波ETF联接A", layer: "股票层", upPct: 1.5, downPct: 1.5, enabled: true, source: "notion" }
   ];
 
   var CONFIG_KEY = "fundAlert.config.v2";
@@ -461,6 +460,7 @@
     level: "active",
     tradeOnly: true,
     oncePerDay: true,
+    hiddenNotionCodes: {},
     funds: DEFAULT_FUNDS.slice()
   };
   var quotes = {};
@@ -514,6 +514,9 @@
         if (saved.level) config.level = saved.level;
         if (typeof saved.tradeOnly === "boolean") config.tradeOnly = saved.tradeOnly;
         if (typeof saved.oncePerDay === "boolean") config.oncePerDay = saved.oncePerDay;
+        if (saved.hiddenNotionCodes && typeof saved.hiddenNotionCodes === "object") {
+          config.hiddenNotionCodes = saved.hiddenNotionCodes;
+        }
         if (Array.isArray(saved.funds) && saved.funds.length) config.funds = saved.funds;
       } else {
         var legacy = JSON.parse(localStorage.getItem(LEGACY_CONFIG_KEY) || "null");
@@ -528,13 +531,15 @@
     config.funds = config.funds
       .filter(function (fund) { return fund && /^\d{6}$/.test(String(fund.code || "")); })
       .map(function (fund) {
+        var isDefault = DEFAULT_FUNDS.some(function (df) { return df.code === String(fund.code); });
         return {
           code: String(fund.code),
           name: fund.name || "",
           layer: fund.layer || "",
           upPct: fund.upPct == null || fund.upPct === "" ? null : Number(fund.upPct),
           downPct: fund.downPct == null || fund.downPct === "" ? null : Number(fund.downPct),
-          enabled: fund.enabled !== false
+          enabled: fund.enabled !== false,
+          source: fund.source || (isDefault ? "notion" : "custom")
         };
       });
   }
@@ -542,6 +547,75 @@
   function saveConfig() { try { localStorage.setItem(CONFIG_KEY, JSON.stringify(config)); } catch (e) {} }
   function saveLogs() { try { localStorage.setItem(LOG_KEY, JSON.stringify(logs.slice(0, 60))); } catch (e) {} }
   function saveFired() { try { localStorage.setItem(FIRED_KEY, JSON.stringify(fired)); } catch (e) {} }
+
+  /* ── 异步从 data/funds.json 拉取 Notion 核心持仓基准 ── */
+  function loadNotionFunds() {
+    return fetch("data/funds.json?t=" + Date.now())
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        if (data && Array.isArray(data.funds) && data.funds.length > 0) {
+          return data.funds.map(function (f) {
+            return {
+              code: String(f.code).padStart(6, "0"),
+              name: f.name || f.code,
+              layer: f.layer || "",
+              upPct: f.upPct != null ? Number(f.upPct) : 1.5,
+              downPct: f.downPct != null ? Number(f.downPct) : 1.5,
+              enabled: f.enabled !== false,
+              source: "notion"
+            };
+          });
+        }
+        return DEFAULT_FUNDS.slice();
+      })
+      .catch(function () {
+        return DEFAULT_FUNDS.slice();
+      });
+  }
+
+  function mergeNotionFunds(notionFunds) {
+    if (!Array.isArray(notionFunds) || !notionFunds.length) return;
+    var notionMap = {};
+    notionFunds.forEach(function (f) { notionMap[f.code] = f; });
+
+    var existingMap = {};
+    var customFunds = [];
+    (config.funds || []).forEach(function (f) {
+      if (f.source === "custom" || !notionMap[f.code]) {
+        f.source = "custom";
+        customFunds.push(f);
+      } else {
+        existingMap[f.code] = f;
+      }
+    });
+
+    var merged = [];
+    notionFunds.forEach(function (nf) {
+      if (config.hiddenNotionCodes && config.hiddenNotionCodes[nf.code]) return;
+      var local = existingMap[nf.code];
+      merged.push({
+        code: nf.code,
+        name: nf.name || (local ? local.name : nf.code),
+        layer: nf.layer || (local ? local.layer : ""),
+        upPct: local && local.upPct != null ? local.upPct : nf.upPct,
+        downPct: local && local.downPct != null ? local.downPct : nf.downPct,
+        enabled: local ? (local.enabled !== false) : (nf.enabled !== false),
+        source: "notion"
+      });
+    });
+
+    customFunds.forEach(function (cf) {
+      merged.push(cf);
+    });
+
+    config.funds = merged;
+    saveConfig();
+    renderRows();
+    renderStats();
+  }
 
   /* 从 URL 参数注入配置（支持注入 Bark 地址或一键重置默认持仓） */
   function absorbUrlParams() {
@@ -664,6 +738,12 @@
     if (config.level) target.searchParams.set("level", config.level);
     target.searchParams.set("group", "基金提醒");
     target.searchParams.set("icon", "https://www.eastmoney.com/favicon.ico");
+    try {
+      var currentUrl = location.href.split("#")[0].split("?")[0];
+      if (/^https?:\/\//i.test(currentUrl)) {
+        target.searchParams.set("url", currentUrl);
+      }
+    } catch (e) {}
     return target.toString();
   }
   function pushBark(title, body) {
@@ -707,8 +787,13 @@
     config.funds.forEach(function (fund, index) {
       var quote = quotes[fund.code] || null;
       var rate = quote ? quote.estChangeRate : null;
+      var isEst = true;
+      if (rate == null && quote && quote.navChangeRate != null) {
+        rate = quote.navChangeRate;
+        isEst = false;
+      }
       var tone = toneOf(rate);
-      var trigger = triggerOf(fund, quote);
+      var trigger = isEst ? triggerOf(fund, quote) : null;
 
       var row = document.createElement("article");
       row.className = "row";
@@ -769,6 +854,12 @@
         tag.textContent = fund.layer;
         meta.appendChild(tag);
       }
+      var srcTag = document.createElement("span");
+      var isNotion = fund.source === "notion";
+      srcTag.className = "tag " + (isNotion ? "tag-notion" : "tag-custom");
+      srcTag.textContent = isNotion ? "Notion主仓" : "自选观察";
+      srcTag.title = isNotion ? "同步自 Notion 资产数据库，云端自动巡检" : "本地添加的自选观察基金，仅保存在当前浏览器";
+      meta.appendChild(srcTag);
       nameBox.appendChild(nameText);
       nameBox.appendChild(meta);
       identity.appendChild(nameBox);
@@ -778,12 +869,20 @@
       rateBox.className = "rate";
       var rateValue = document.createElement("div");
       rateValue.className = "rate-value " + tone;
-      rateValue.textContent = fmtPct(rate);
+      rateValue.textContent = fmtPct(rate) + (isEst ? "" : " (昨收)");
       var rateNote = document.createElement("div");
       rateNote.className = "rate-note";
-      rateNote.textContent = quote
-        ? (quote.estNav == null ? "估值 " + fmtNum(quote.nav) : "估值 " + fmtNum(quote.estNav))
-        : "暂无估值";
+      if (quote) {
+        if (isEst && quote.estNav != null) {
+          rateNote.textContent = "估值 " + fmtNum(quote.estNav);
+        } else if (quote.nav != null) {
+          rateNote.textContent = "净值 " + fmtNum(quote.nav) + " (" + (quote.navDate ? quote.navDate.slice(5) : "收盘") + ")";
+        } else {
+          rateNote.textContent = "暂无估值";
+        }
+      } else {
+        rateNote.textContent = "拉取中…";
+      }
       rateBox.appendChild(rateValue);
       rateBox.appendChild(rateNote);
 
@@ -806,7 +905,9 @@
       var meterLabel = document.createElement("div");
       meterLabel.className = "meter-label";
       if (rate == null) {
-        meterLabel.textContent = "等待盘中估值";
+        meterLabel.textContent = "等待行情数据";
+      } else if (!isEst) {
+        meterLabel.textContent = "休市中 · 待开盘估值";
       } else if (trigger) {
         meterLabel.innerHTML = trigger === "up" ? "已触发 <b>涨超</b>阈值" : "已触发 <b>跌超</b>阈值";
       } else if (threshold > 0) {
@@ -880,6 +981,14 @@
       removeBtn.setAttribute("aria-label", "删除该基金");
       removeBtn.innerHTML = iconSvg("trash-2");
       removeBtn.addEventListener("click", function () {
+        var targetFund = config.funds[index];
+        if (targetFund && targetFund.source === "notion") {
+          config.hiddenNotionCodes = config.hiddenNotionCodes || {};
+          config.hiddenNotionCodes[targetFund.code] = true;
+          toast("已在当前页面隐藏（Notion 资产库不受影响）");
+        } else {
+          toast("已删除自选基金");
+        }
         config.funds.splice(index, 1);
         persist();
         renderRows();
@@ -902,14 +1011,18 @@
   function renderStats() {
     var list = config.funds
       .map(function (fund) { return quotes[fund.code]; })
-      .filter(function (quote) { return quote && quote.estChangeRate != null; });
-    var latest = list.map(function (quote) { return quote.quoteTime; }).filter(Boolean).sort().pop();
+      .filter(function (quote) { return quote && (quote.estChangeRate != null || quote.navChangeRate != null); });
+    var latest = list.map(function (quote) { return quote.quoteTime || quote.navDate; }).filter(Boolean).sort().pop();
     el.statTime.textContent = latest || "—";
     var today = shanghaiNow().date;
     var count = logs.filter(function (log) { return log.date === today; }).length;
     el.statTriggers.textContent = String(count);
     if (list.length) {
-      var sorted = list.slice().sort(function (a, b) { return b.estChangeRate - a.estChangeRate; });
+      var sorted = list.slice().sort(function (a, b) {
+        var rateA = a.estChangeRate != null ? a.estChangeRate : a.navChangeRate;
+        var rateB = b.estChangeRate != null ? b.estChangeRate : b.navChangeRate;
+        return (rateB || 0) - (rateA || 0);
+      });
       var top = sorted[0];
       var bottom = sorted[sorted.length - 1];
       setStat(el.statTop, top);
@@ -922,12 +1035,14 @@
     }
   }
   function setStat(node, quote) {
-    var tone = toneOf(quote.estChangeRate);
+    var rate = quote.estChangeRate != null ? quote.estChangeRate : quote.navChangeRate;
+    var isEst = quote.estChangeRate != null;
+    var tone = toneOf(rate);
     node.className = tone;
     var shortName = (quote.name || quote.code).replace(/[（(].*?[）)]/g, "");
     if (shortName.length > 10) shortName = shortName.slice(0, 10) + "…";
     node.innerHTML = "";
-    node.appendChild(document.createTextNode(fmtPct(quote.estChangeRate)));
+    node.appendChild(document.createTextNode(fmtPct(rate) + (isEst ? "" : " (昨收)")));
     var small = document.createElement("small");
     small.textContent = shortName;
     node.appendChild(small);
@@ -966,20 +1081,14 @@
   function renderStatus() {
     var now = shanghaiNow();
     el.sessionText.textContent = sessionLabel(now);
-    if (!running) {
-      setStatus("idle", "未监控");
-      el.toggleBtn.innerHTML = iconSvg("play") + '<span class="tool-label">开始监控</span>';
-      el.toggleBtn.classList.add("accent");
-      return;
-    }
     var inside = inTradingSession(now);
-    if (config.tradeOnly && !inside) {
-      setStatus("closed", "已暂停 · 非交易时段");
+    if (inside) {
+      setStatus("running", "云端监控中 · 交易时段");
+      el.statusPill.setAttribute("title", "GitHub Actions 正在云端每 15 分钟自动巡检，超阈值推送 Bark，无需保持网页打开。");
     } else {
-      setStatus(inside ? "running" : "open", inside ? "监控中" : "监控中 · 非交易时段");
+      setStatus("open", "云端已就绪 · 休市中");
+      el.statusPill.setAttribute("title", "当前处于休市时段。每个交易日 09:30-15:00 GitHub Actions 将在云端自动巡检并推送 Bark。");
     }
-    el.toggleBtn.innerHTML = iconSvg("pause") + '<span class="tool-label">停止监控</span>';
-    el.toggleBtn.classList.remove("accent");
   }
 
   /* ── 提醒判定 ─────────────────────────────────── */
@@ -1114,27 +1223,42 @@
   }
 
   /* ── 事件绑定 ─────────────────────────────────── */
-  el.toggleBtn.addEventListener("click", function () {
-    if (running) stopMonitor(); else startMonitor();
+  if (el.toggleBtn) {
+    el.toggleBtn.addEventListener("click", function () {
+      if (running) stopMonitor(); else startMonitor();
+    });
+  }
+  el.refreshBtn.addEventListener("click", function () {
+    el.refreshBtn.disabled = true;
+    toast("正在刷新行情…");
+    runCheck(true).then(function () {
+      toast("行情已刷新");
+      el.refreshBtn.disabled = false;
+    }).catch(function () {
+      el.refreshBtn.disabled = false;
+    });
   });
-  el.refreshBtn.addEventListener("click", function () { runCheck(true); });
   el.settingsBtn.addEventListener("click", openSettings);
   el.closeSettingsBtn.addEventListener("click", closeSettings);
   el.saveSettingsBtn.addEventListener("click", saveSettings);
   if (el.resetFundsBtn) {
     el.resetFundsBtn.addEventListener("click", function () {
-      config.funds = DEFAULT_FUNDS.slice();
-      saveConfig();
-      renderRows();
-      renderStats();
-      toast("已恢复为 Notion 默认持仓基金");
+      config.hiddenNotionCodes = {};
+      loadNotionFunds().then(function (notionFunds) {
+        config.funds = notionFunds.slice();
+        saveConfig();
+        renderRows();
+        renderStats();
+        runCheck(true);
+        toast("已重新同步 Notion 主仓持仓");
+      });
     });
   }
   el.showBark.addEventListener("change", function () {
     el.barkUrl.type = el.showBark.checked ? "text" : "password";
   });
   el.addBtn.addEventListener("click", function () {
-    config.funds.push({ code: "", name: "", layer: "", upPct: 1, downPct: 1, enabled: true });
+    config.funds.push({ code: "", name: "新自选基金", layer: "自选", upPct: 1.5, downPct: 1.5, enabled: true, source: "custom" });
     renderRows();
     var inputs = el.rows.querySelectorAll(".code-input");
     if (inputs.length) inputs[inputs.length - 1].focus();
@@ -1172,6 +1296,10 @@
   renderStats();
   renderStatus();
   runCheck(true);
+  loadNotionFunds().then(function (notionFunds) {
+    mergeNotionFunds(notionFunds);
+    runCheck(true);
+  });
   setInterval(tick, 1000);
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden) runCheck(true);
