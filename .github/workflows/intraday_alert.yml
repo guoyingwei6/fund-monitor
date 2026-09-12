@@ -31,7 +31,7 @@ jobs:
           cache: "pip"
 
       - name: 安装 Python 依赖
-        run: pip install -r requirements.txt
+        run: pip install requests
 
       - name: 获取当前东八区日期
         id: date

@@ -17,6 +17,7 @@ CST = timezone(timedelta(hours=8))
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "").strip()
 NOTION_DATABASE_ID = os.environ.get("NOTION_DATABASE_ID", "25bf49a100364b528fcf8c84077c338a").strip()
 BARK_URL = os.environ.get("BARK_URL", "").strip()
+PAGES_URL = os.environ.get("PAGES_URL", "https://guoyingwei6.github.io/fund-monitor/").strip()
 
 # 涨跌幅触发阈值（百分比），股票层默认 ±1.5%，债券层默认 ±0.5%
 STOCK_ALERT_THRESHOLD = float(os.environ.get("STOCK_ALERT_THRESHOLD", "1.5"))
@@ -36,17 +37,20 @@ EASTMONEY_HEADERS = {
 # ── 交易时间与交易日判定 ──────────────────────────────
 
 def is_cn_trade_day(target_date: date) -> bool:
-    """判断今天是否为 A 股交易日。"""
+    """判断今天是否为 A 股交易日（轻量化检查，无需 akshare）。"""
+    if target_date.weekday() >= 5:
+        return False
     try:
-        import akshare as ak
-        df = ak.tool_trade_date_hist_sina()
-        if df.empty or "trade_date" not in df.columns:
-            return True
-        trade_dates = set(str(d) for d in df["trade_date"].astype(str))
-        return target_date.strftime("%Y-%m-%d") in trade_dates
+        resp = requests.get(f"https://timor.tech/api/holiday/info/{target_date.strftime('%Y-%m-%d')}", timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            holiday_type = data.get("type", {}).get("type")
+            # 1: 周末, 2: 节假日
+            if holiday_type in (1, 2):
+                return False
     except Exception as e:
-        print(f"[提示] 交易日历获取失败，默认允许检查: {e}")
-        return True
+        pass
+    return True
 
 
 def is_trading_hours(now: datetime) -> tuple[bool, str]:
@@ -203,26 +207,50 @@ def save_state(state: dict) -> None:
 
 # ── Bark 推送 ─────────────────────────────────────────
 
-def send_bark_alert(title: str, body: str) -> bool:
-    """向 Bark 推送消息。"""
+def send_bark_alert(title: str, body: str, url: str | None = None) -> bool:
+    """向 Bark 推送消息，优先使用 POST JSON，失败回退为 GET。"""
     if not BARK_URL:
         print("[警告] 未配置 BARK_URL，跳过推送")
         return False
 
+    target_url = url or PAGES_URL
     parsed = urllib.parse.urlparse(BARK_URL)
     key = [part for part in parsed.path.split("/") if part][0] if parsed.path else ""
     if not key:
         print("[错误] BARK_URL 中未找到有效 Key")
         return False
 
-    endpoint = f"{parsed.scheme}://{parsed.netloc}/{urllib.parse.quote(key)}/{urllib.parse.quote(title)}/{urllib.parse.quote(body)}"
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+    post_url = f"{base_url}/push"
+    payload = {
+        "device_key": key,
+        "title": title,
+        "body": body,
+        "group": "基金盘中提醒",
+        "level": "timeSensitive",
+        "icon": "https://www.eastmoney.com/favicon.ico",
+    }
+    if target_url:
+        payload["url"] = target_url
+
+    try:
+        resp = requests.post(post_url, json=payload, timeout=10)
+        if resp.status_code == 200:
+            return True
+    except Exception as e:
+        print(f"[提示] Bark POST 推送失败，尝试 GET 回退: {e}")
+
+    get_endpoint = f"{base_url}/{urllib.parse.quote(key)}/{urllib.parse.quote(title)}/{urllib.parse.quote(body)}"
     params = {
         "group": "基金盘中提醒",
         "level": "timeSensitive",
         "icon": "https://www.eastmoney.com/favicon.ico",
     }
+    if target_url:
+        params["url"] = target_url
+
     try:
-        resp = requests.get(endpoint, params=params, timeout=10)
+        resp = requests.get(get_endpoint, params=params, timeout=10)
         return resp.status_code == 200
     except Exception as e:
         print(f"[错误] 发送 Bark 失败: {e}")
@@ -260,6 +288,15 @@ def main():
     # 2. 获取实时估值
     quotes = fetch_realtime_quotes(codes)
     state = load_state()
+
+    # 校验东财返回的估值时间是否为今日，若全部基金均无今日估值则视为实际休市
+    has_today_quote = any(
+        (q.get("gztime") or "").startswith(today_str)
+        for q in quotes.values()
+    )
+    if not FORCE_CHECK and quotes and not has_today_quote:
+        print(f"[休市] 基金实时估值时间未更新为今日 ({today_str})，判定为非交易日或未开市，退出。")
+        return
 
     # 清理非当天的历史状态
     state = {k: v for k, v in state.items() if v.get("date") == today_str}
@@ -313,6 +350,11 @@ def main():
             f"估值时间: {quote.get('gztime', now.strftime('%H:%M'))}",
             f"操作建议: {action_text}",
         ]
+        is_qdii = any(k in name for k in ("QDII", "纳斯达克", "标普", "美股"))
+        if is_qdii:
+            body_lines.append("特别提醒: 海外标的白天处于休市期，盘中估值为股指期货估算，实际净值以美股收盘为准。")
+        if PAGES_URL:
+            body_lines.append(f"查看详情: {PAGES_URL}")
         body = "\n".join(body_lines)
 
         print(f"      ★ 触发提醒: {title}")

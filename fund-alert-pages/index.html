@@ -46,6 +46,11 @@
 
   .shell { width: min(1120px, 100% - 32px); margin: 0 auto; padding: 20px 0 56px; }
 
+  /* ── 嵌入 Notion / Iframe 容器优化 ── */
+  html.is-embedded body { background: var(--surface); }
+  html.is-embedded .shell { width: 100%; max-width: 100%; padding: 10px 14px 24px; }
+  html.is-embedded .appbar { padding: 0 0 12px; }
+
   svg.icon {
     width: 16px; height: 16px; flex: none; display: block;
     fill: none;
@@ -373,6 +378,7 @@
     </div>
   </div>
   <div class="dialog-foot">
+    <button class="btn ghost" type="button" id="resetFundsBtn" title="恢复为 Notion 默认持仓基金">恢复默认持仓</button>
     <button class="btn" type="button" id="testPushBtn">
       <svg class="icon" data-icon="send" viewBox="0 0 24 24" aria-hidden="true"></svg>发送测试
     </button>
@@ -387,6 +393,15 @@
 <script>
 (function () {
   "use strict";
+
+  // 检测是否在 iframe 或 Notion 嵌入容器中
+  try {
+    if (window.self !== window.top || new URLSearchParams(window.location.search).has("embed")) {
+      document.documentElement.classList.add("is-embedded");
+    }
+  } catch (e) {
+    document.documentElement.classList.add("is-embedded");
+  }
 
   /* ── 图标（lucide，内联自托管） ─────────────── */
   var ICONS = {
@@ -482,6 +497,7 @@
     tradeOnly: document.getElementById("tradeOnly"),
     oncePerDay: document.getElementById("oncePerDay"),
     closeSettingsBtn: document.getElementById("closeSettingsBtn"),
+    resetFundsBtn: document.getElementById("resetFundsBtn"),
     saveSettingsBtn: document.getElementById("saveSettingsBtn"),
     testPushBtn: document.getElementById("testPushBtn"),
     addBtn: document.getElementById("addBtn"),
@@ -527,19 +543,32 @@
   function saveLogs() { try { localStorage.setItem(LOG_KEY, JSON.stringify(logs.slice(0, 60))); } catch (e) {} }
   function saveFired() { try { localStorage.setItem(FIRED_KEY, JSON.stringify(fired)); } catch (e) {} }
 
-  /* 从 URL 参数注入 Bark 地址（首次配置用，可避免把 Key 提交到公开仓库） */
-  function absorbUrlBark() {
+  /* 从 URL 参数注入配置（支持注入 Bark 地址或一键重置默认持仓） */
+  function absorbUrlParams() {
     var params = new URLSearchParams(location.search);
-    if (!params.has("bark")) params = new URLSearchParams(location.hash.replace(/^#/, ""));
-    var value = (params.get("bark") || "").trim();
-    if (!value) return;
-    config.barkUrl = value;
-    saveConfig();
+    if (!params.has("bark") && !params.has("defaults") && !params.has("reset")) {
+      params = new URLSearchParams(location.hash.replace(/^#/, ""));
+    }
+    var changed = false;
+    var barkValue = (params.get("bark") || "").trim();
+    if (barkValue) {
+      config.barkUrl = barkValue;
+      changed = true;
+    }
+    if (params.get("defaults") === "1" || params.get("reset") === "1") {
+      config.funds = DEFAULT_FUNDS.slice();
+      changed = true;
+    }
+    if (changed) saveConfig();
     try {
       var url = new URL(location.href);
       url.searchParams.delete("bark");
+      url.searchParams.delete("defaults");
+      url.searchParams.delete("reset");
       var hash = new URLSearchParams(url.hash.replace(/^#/, ""));
       hash.delete("bark");
+      hash.delete("defaults");
+      hash.delete("reset");
       url.hash = hash.toString();
       history.replaceState(null, "", url.pathname + (url.search || "") + (url.hash ? "#" + url.hash : ""));
     } catch (error) { /* 忽略地址清理失败 */ }
@@ -1092,6 +1121,15 @@
   el.settingsBtn.addEventListener("click", openSettings);
   el.closeSettingsBtn.addEventListener("click", closeSettings);
   el.saveSettingsBtn.addEventListener("click", saveSettings);
+  if (el.resetFundsBtn) {
+    el.resetFundsBtn.addEventListener("click", function () {
+      config.funds = DEFAULT_FUNDS.slice();
+      saveConfig();
+      renderRows();
+      renderStats();
+      toast("已恢复为 Notion 默认持仓基金");
+    });
+  }
   el.showBark.addEventListener("change", function () {
     el.barkUrl.type = el.showBark.checked ? "text" : "password";
   });
@@ -1128,7 +1166,7 @@
 
   /* ── 启动 ─────────────────────────────────────── */
   loadStore();
-  absorbUrlBark();
+  absorbUrlParams();
   renderRows();
   renderLogs();
   renderStats();

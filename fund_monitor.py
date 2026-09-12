@@ -4,6 +4,7 @@
 """
 
 import os
+import sys
 import re
 import json
 import time
@@ -16,6 +17,7 @@ CST = timezone(timedelta(hours=8))
 # ── 配置 ──────────────────────────────────────────────
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN", "")
 NOTION_DATABASE_ID = "25bf49a100364b528fcf8c84077c338a"
+PAGES_URL = os.environ.get("PAGES_URL", "https://guoyingwei6.github.io/fund-monitor/").strip()
 
 # 再平衡触发阈值：实际配比偏离目标超过此值时触发建议
 # 例如 0.05 = 5%（目标30%，实际>35%或<25%时触发）
@@ -39,6 +41,16 @@ EASTMONEY_HEADERS = {
 }
 
 # ── 天天基金 API ───────────────────────────────────────
+
+def safe_float(val: Any, default: float = 0.0) -> float:
+    """安全转换为浮点数，处理空字符串、None 及格式异常。"""
+    if val is None or val == "":
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
 
 def fetch_fund_nav(fund_code: str) -> dict | None:
     """
@@ -65,10 +77,10 @@ def fetch_fund_nav(fund_code: str) -> dict | None:
             return None
         latest = records[0]
         return {
-            "nav": float(latest["DWJZ"]),
-            "acc_nav": float(latest["LJJZ"]),
-            "change_rate": float(latest["JZZZL"]),  # 百分比值，如 1.53
-            "nav_date": latest["FSRQ"],
+            "nav": safe_float(latest.get("DWJZ")),
+            "acc_nav": safe_float(latest.get("LJJZ")),
+            "change_rate": safe_float(latest.get("JZZZL")),  # 百分比值，如 1.53
+            "nav_date": latest.get("FSRQ", ""),
         }
     except Exception as e:
         print(f"  [警告] 获取 {fund_code} 净值失败: {e}")
@@ -88,8 +100,8 @@ def fetch_realtime_estimate(fund_code: str) -> dict | None:
         json_str = text[text.index("(") + 1 : text.rindex(")")]
         data = json.loads(json_str)
         return {
-            "est_nav": float(data.get("gsz", 0)),
-            "est_change_rate": float(data.get("gszzl", 0)),
+            "est_nav": safe_float(data.get("gsz")),
+            "est_change_rate": safe_float(data.get("gszzl")),
             "update_time": data.get("gztime", ""),
         }
     except Exception as e:
@@ -282,6 +294,7 @@ DEFAULT_STRATEGY_DESCRIPTION = "\n".join([
     "⏳ 目标持有期：30年",
     "📈 预期年化：6-9%，进取目标10%",
     "⚖️ 配置比例：债券40%，股票60%",
+    f"🔗 盘中估值看板：{PAGES_URL}",
 ])
 
 # 趋势温度阈值：用于没有稳定 PE/PB 的海外指数。
@@ -695,8 +708,13 @@ def sync_parent_page_strategy_callout(content: str) -> None:
         children = children_resp.json().get("results", [])
 
         existing_block = None
+        existing_embed_block = None
         holdings_block_id = None
         for block in children:
+            if block.get("type") == "embed":
+                embed_url = block.get("embed", {}).get("url", "")
+                if PAGES_URL in embed_url or "fund-monitor" in embed_url:
+                    existing_embed_block = block
             text = block_plain_text(block)
             if block.get("type") == "child_database" and text == "基金持仓":
                 holdings_block_id = block["id"]
@@ -704,7 +722,9 @@ def sync_parent_page_strategy_callout(content: str) -> None:
                 existing_block = block
 
         rich_text = [{"type": "text", "text": {"content": content[:1900]}}]
+        target_anchor_id = None
         if existing_block:
+            target_anchor_id = existing_block["id"]
             block_type = existing_block["type"]
             block_payload = existing_block.get(block_type, {})
             if block_type == "paragraph" and block_payload.get("icon"):
@@ -730,40 +750,72 @@ def sync_parent_page_strategy_callout(content: str) -> None:
                     timeout=10,
                 )
                 archive_resp.raise_for_status()
+                created = resp.json().get("results", [])
+                if created:
+                    target_anchor_id = created[0].get("id", target_anchor_id)
                 print("  [OK] 页面正文策略说明已替换为无图标段落")
-                return
+            else:
+                update_payload = {block_type: {"rich_text": rich_text}}
+                resp = requests.patch(
+                    f"https://api.notion.com/v1/blocks/{existing_block['id']}",
+                    headers=NOTION_HEADERS,
+                    json=update_payload,
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                print("  [OK] 页面正文策略说明已更新")
+        else:
+            append_payload = {
+                "children": [{
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {"rich_text": rich_text},
+                }]
+            }
+            if holdings_block_id:
+                append_payload["after"] = holdings_block_id
 
-            update_payload = {block_type: {"rich_text": rich_text}}
             resp = requests.patch(
-                f"https://api.notion.com/v1/blocks/{existing_block['id']}",
+                f"https://api.notion.com/v1/blocks/{parent_id}/children",
                 headers=NOTION_HEADERS,
-                json=update_payload,
+                json=append_payload,
                 timeout=10,
             )
             resp.raise_for_status()
-            print("  [OK] 页面正文策略说明已更新")
-            return
+            created = resp.json().get("results", [])
+            if created:
+                target_anchor_id = created[0].get("id")
+            print("  [OK] 页面正文策略说明已创建")
 
-        append_payload = {
-            "children": [{
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {"rich_text": rich_text},
-            }]
-        }
-        if holdings_block_id:
-            append_payload["after"] = holdings_block_id
+        # 确保存在盘中看板的 Embed Block（支持 Notion 内部直接预览与交互）
+        if PAGES_URL and not existing_embed_block:
+            embed_payload = {
+                "children": [{
+                    "object": "block",
+                    "type": "embed",
+                    "embed": {
+                        "url": PAGES_URL,
+                        "caption": [{"type": "text", "text": {"content": "📊 盘中实时估值看板（支持 Notion 内部实时交互与预览）"}}]
+                    }
+                }]
+            }
+            if target_anchor_id:
+                embed_payload["after"] = target_anchor_id
+            elif holdings_block_id:
+                embed_payload["after"] = holdings_block_id
 
-        resp = requests.patch(
-            f"https://api.notion.com/v1/blocks/{parent_id}/children",
-            headers=NOTION_HEADERS,
-            json=append_payload,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        print("  [OK] 页面正文策略说明已创建")
+            resp = requests.patch(
+                f"https://api.notion.com/v1/blocks/{parent_id}/children",
+                headers=NOTION_HEADERS,
+                json=embed_payload,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            print("  [OK] 页面正文已嵌入盘中估值看板 Embed Block（支持 Notion 实时预览）")
+        elif existing_embed_block:
+            print("  [OK] 页面正文盘中估值看板 Embed Block 已存在")
     except Exception as e:
-        print(f"  [警告] 同步页面正文策略说明失败: {e}")
+        print(f"  [警告] 同步页面正文策略说明与 Embed 看板失败: {e}")
 
 
 def update_market_callout(
@@ -844,7 +896,17 @@ def update_market_callout(
     strategy_text = "\n".join(strategy_lines).strip()
     if not strategy_text or "长期投资配置方案" not in strategy_text:
         strategy_text = DEFAULT_STRATEGY_DESCRIPTION
-    new_desc = f"{strategy_text}\n{market_line}" if strategy_text else market_line
+    market_marker = "<!-- MARKET_CALLOUT -->"
+    if market_marker in existing_desc:
+        prefix, _ = existing_desc.split(market_marker, 1)
+        strategy_text = prefix.rstrip()
+        if PAGES_URL and "盘中估值看板" not in strategy_text and PAGES_URL not in strategy_text:
+            strategy_text = f"{strategy_text}\n🔗 盘中估值看板：{PAGES_URL}".strip()
+        new_desc = f"{strategy_text}\n{market_marker}\n{market_line}"
+    else:
+        if PAGES_URL and "盘中估值看板" not in strategy_text and PAGES_URL not in strategy_text:
+            strategy_text = f"{strategy_text}\n🔗 盘中估值看板：{PAGES_URL}".strip()
+        new_desc = f"{strategy_text}\n{market_marker}\n{market_line}" if strategy_text else f"{market_marker}\n{market_line}"
 
     resp = requests.patch(
         f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
@@ -951,6 +1013,22 @@ def main():
         return
 
     ensure_notion_schema()
+
+    if "--sync-page" in sys.argv or "--sync-strategy" in sys.argv:
+        print("正在同步 Notion 页面策略说明与盘中看板 Embed 预览块...")
+        db_resp = requests.get(
+            f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}",
+            headers=NOTION_HEADERS,
+            timeout=10,
+        )
+        existing_desc = ""
+        if db_resp.status_code == 200:
+            existing_desc = "".join(
+                b.get("plain_text", "") for b in db_resp.json().get("description", [])
+            )
+        desc = existing_desc if existing_desc.strip() else DEFAULT_STRATEGY_DESCRIPTION
+        sync_parent_page_strategy_callout(desc)
+        return
 
     today = datetime.now(CST).date()
     if SKIP_NON_TRADE_DAY and not is_cn_trade_day(today):
