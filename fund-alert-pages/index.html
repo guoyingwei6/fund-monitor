@@ -1,0 +1,1129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>盘中基金提醒</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --surface-2: #fafbfc;
+    --line: #e3e6ea;
+    --line-strong: #d2d7dd;
+    --ink: #191d23;
+    --ink-2: #3d444d;
+    --muted: #6f7885;
+    --up: #d13c30;
+    --up-soft: #fdeceb;
+    --down: #12905e;
+    --down-soft: #e8f6ef;
+    --accent: #3b5bdb;
+    --accent-soft: #edf0fd;
+    --amber: #b7791f;
+    --amber-soft: #fdf3e2;
+    --radius: 8px;
+    --shadow: 0 1px 2px rgba(16, 20, 26, .06), 0 8px 24px rgba(16, 20, 26, .05);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+  }
+  input, button, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+
+  .shell { width: min(1120px, 100% - 32px); margin: 0 auto; padding: 20px 0 56px; }
+
+  svg.icon { width: 16px; height: 16px; flex: none; display: block; }
+
+  /* ── 顶栏 ─────────────────────────────────────── */
+  .appbar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 2px 0 18px; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; min-width: 0; }
+  .brand-mark {
+    width: 34px; height: 34px; border-radius: var(--radius); flex: none;
+    display: grid; place-items: center;
+    background: var(--ink); color: #fff;
+  }
+  .brand-mark svg { width: 18px; height: 18px; }
+  .brand-text { min-width: 0; }
+  .brand-text h1 { margin: 0; font-size: 16px; font-weight: 650; line-height: 1.25; }
+  .brand-text p { margin: 1px 0 0; font-size: 12px; color: var(--muted); }
+
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 32px; padding: 0 12px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--line);
+    font-size: 12.5px; color: var(--ink-2); white-space: nowrap;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .status-pill[data-state="running"] .dot { background: var(--down); box-shadow: 0 0 0 3px var(--down-soft); }
+  .status-pill[data-state="open"] .dot { background: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft); }
+  .status-pill[data-state="closed"] .dot { background: var(--muted); }
+
+  .tools { display: flex; align-items: center; gap: 8px; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    height: 34px; padding: 0 13px; border-radius: var(--radius);
+    border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2);
+    font-size: 13px; font-weight: 500; white-space: nowrap;
+    transition: background .14s ease, border-color .14s ease, color .14s ease;
+  }
+  .btn:hover { background: var(--surface-2); border-color: var(--muted); }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn.icon-only { width: 34px; padding: 0; }
+  .btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .btn.primary:hover { background: #000; border-color: #000; }
+  .btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.accent:hover { background: #324bb8; border-color: #324bb8; }
+  .btn.ghost { border-color: transparent; background: transparent; }
+  .btn.ghost:hover { background: var(--line); border-color: transparent; }
+
+  /* ── 概览 ─────────────────────────────────────── */
+  .overview {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1px; background: var(--line);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden; margin-bottom: 22px;
+  }
+  .stat { background: var(--surface); padding: 13px 16px; min-width: 0; }
+  .stat dt { margin: 0; font-size: 12px; color: var(--muted); }
+  .stat dd { margin: 4px 0 0; font-size: 19px; font-weight: 620; line-height: 1.2; }
+  .stat dd small { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+  .stat dd.up { color: var(--up); }
+  .stat dd.down { color: var(--down); }
+
+  /* ── 区块 ─────────────────────────────────────── */
+  .section { margin-top: 26px; }
+  .section-head { display: flex; align-items: baseline; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line-strong); }
+  .section-head h2 { margin: 0; font-size: 14px; font-weight: 650; }
+  .section-head .count { font-size: 12px; color: var(--muted); }
+  .section-head .spacer { margin-left: auto; }
+
+  /* ── 基金行 ───────────────────────────────────── */
+  .rows { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(190px, 1.5fr) 108px minmax(120px, 1fr) 84px 84px 48px 44px;
+    align-items: center; gap: 14px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 12px 14px;
+    box-shadow: var(--shadow);
+  }
+  .row[data-off="true"] { opacity: .52; }
+  .row[data-trigger="up"] { border-color: #f0bdb8; }
+  .row[data-trigger="down"] { border-color: #a9dcc6; }
+
+  .identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .layer-bar { width: 4px; align-self: stretch; min-height: 34px; border-radius: 2px; background: var(--line-strong); flex: none; }
+  .row[data-layer="股票层"] .layer-bar { background: var(--up); }
+  .row[data-layer="债券层"] .layer-bar { background: var(--accent); }
+  .row[data-layer="现金层"] .layer-bar { background: var(--amber); }
+  .name-box { min-width: 0; flex: 1; }
+  .name-text {
+    width: 100%; min-width: 0; border: 1px solid transparent; background: transparent;
+    padding: 1px 3px; margin-left: -3px; border-radius: 4px;
+    font-size: 14px; font-weight: 600; color: var(--ink);
+    line-height: 1.35; word-break: break-word; cursor: text;
+  }
+  .name-text:hover { border-color: var(--line); }
+  .name-text:focus { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+  .code-input {
+    width: 70px; border: 1px solid transparent; background: transparent;
+    padding: 0 3px; border-radius: 4px; font-size: 11.5px; color: var(--muted);
+  }
+  .code-input:hover { border-color: var(--line); }
+  .code-input:focus { outline: none; border-color: var(--accent); background: var(--surface); color: var(--ink); }
+  .tag { padding: 1px 6px; border-radius: 4px; background: var(--line); color: var(--ink-2); font-size: 11px; }
+
+  .rate { text-align: right; }
+  .rate-value { font-size: 20px; font-weight: 650; line-height: 1.1; }
+  .rate-value.up { color: var(--up); }
+  .rate-value.down { color: var(--down); }
+  .rate-value.flat { color: var(--muted); }
+  .rate-note { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  .meter-wrap { min-width: 0; }
+  .meter {
+    position: relative; height: 8px; border-radius: 4px;
+    background: linear-gradient(var(--line), var(--line)) padding-box;
+    overflow: hidden;
+  }
+  .meter-fill { position: absolute; top: 0; bottom: 0; width: 0; border-radius: 4px; transition: width .3s ease, left .3s ease; }
+  .meter-fill.up { background: var(--up); }
+  .meter-fill.down { background: var(--down); }
+  .meter-zero { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--line-strong); }
+  .meter-label { margin-top: 5px; font-size: 11px; color: var(--muted); }
+  .meter-label b { color: var(--ink-2); font-weight: 600; }
+
+  .threshold label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  .num { display: flex; align-items: center; gap: 2px; }
+  .num input {
+    width: 100%; min-width: 0; height: 28px; padding: 0 6px;
+    border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface);
+    font-size: 13px; text-align: right;
+  }
+  .num input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .num span { font-size: 11px; color: var(--muted); }
+
+  .row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+  .switch { position: relative; width: 36px; height: 20px; flex: none; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+  .switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--line-strong); transition: background .16s ease; }
+  .switch span::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25);
+    transition: transform .16s ease;
+  }
+  .switch input:checked + span { background: var(--down); }
+  .switch input:checked + span::after { transform: translateX(16px); }
+  .switch input:focus-visible + span { box-shadow: 0 0 0 2px var(--accent-soft); }
+
+  .empty { padding: 26px; text-align: center; color: var(--muted); font-size: 13px; border: 1px dashed var(--line-strong); border-radius: var(--radius); }
+
+  /* ── 提醒记录 ─────────────────────────────────── */
+  .logs { display: flex; flex-direction: column; margin-top: 8px; }
+  .log {
+    display: grid; grid-template-columns: 62px 1fr auto;
+    align-items: center; gap: 12px;
+    padding: 9px 4px; border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .log:last-child { border-bottom: 0; }
+  .log time { color: var(--muted); font-size: 12px; }
+  .log .log-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log .log-main b { font-weight: 600; }
+  .log .badge { padding: 2px 8px; border-radius: 999px; font-size: 11.5px; white-space: nowrap; }
+  .log .badge.up { background: var(--up-soft); color: var(--up); }
+  .log .badge.down { background: var(--down-soft); color: var(--down); }
+  .log .badge.sent { background: var(--down-soft); color: var(--down); }
+  .log .badge.failed { background: var(--amber-soft); color: var(--amber); }
+
+  /* ── 弹窗 ─────────────────────────────────────── */
+  dialog {
+    border: 1px solid var(--line); border-radius: 10px; padding: 0;
+    width: min(520px, calc(100% - 32px)); background: var(--surface); color: var(--ink);
+    box-shadow: 0 24px 60px rgba(16,20,26,.22);
+  }
+  dialog::backdrop { background: rgba(19,23,29,.42); }
+  .dialog-head { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+  .dialog-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+  .dialog-head .btn { margin-left: auto; }
+  .dialog-body { padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+  .field label { display: block; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; }
+  .field .hint { font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+  .field input[type="text"], .field input[type="password"], .field input[type="number"], .field select {
+    width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--line-strong);
+    border-radius: 6px; background: var(--surface); font-size: 13.5px;
+  }
+  .field input:focus, .field select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .check { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--ink-2); }
+  .check input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--line); background: var(--surface-2); border-radius: 0 0 10px 10px; }
+
+  /* ── 提示 ─────────────────────────────────────── */
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 14px);
+    background: var(--ink); color: #fff; padding: 10px 16px; border-radius: var(--radius);
+    font-size: 13px; box-shadow: 0 12px 30px rgba(16,20,26,.28);
+    opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease;
+    max-width: min(520px, calc(100% - 32px));
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.error { background: #8f2b21; }
+
+  @media (max-width: 880px) {
+    .overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .row { grid-template-columns: 1fr auto; grid-template-areas: "identity rate" "meter meter" "up down" "actions actions"; row-gap: 12px; }
+    .identity { grid-area: identity; }
+    .rate { grid-area: rate; }
+    .meter-wrap { grid-area: meter; }
+    .threshold.up-th { grid-area: up; }
+    .threshold.down-th { grid-area: down; }
+    .row-actions { grid-area: actions; justify-content: space-between; }
+  }
+  @media (max-width: 520px) {
+    .shell { width: calc(100% - 20px); }
+    .field-row { grid-template-columns: 1fr; }
+    .tool-label { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="appbar">
+    <div class="brand">
+      <div class="brand-mark"><svg class="icon" data-icon="bell-ring" viewBox="0 0 24 24" aria-hidden="true"></svg></div>
+      <div class="brand-text">
+        <h1>盘中基金提醒</h1>
+        <p id="sessionText">—</p>
+      </div>
+    </div>
+    <div class="status-pill" data-state="idle" id="statusPill">
+      <span class="dot"></span><span id="statusText">未监控</span>
+    </div>
+    <div class="tools">
+      <button class="btn icon-only" type="button" id="testBtn" title="发送测试推送" aria-label="发送测试推送">
+        <svg class="icon" data-icon="send" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+      <button class="btn icon-only" type="button" id="refreshBtn" title="立即刷新估值" aria-label="立即刷新估值">
+        <svg class="icon" data-icon="refresh-cw" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+      <button class="btn icon-only" type="button" id="settingsBtn" title="设置" aria-label="设置">
+        <svg class="icon" data-icon="settings" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+      <button class="btn accent" type="button" id="toggleBtn">
+        <svg class="icon" data-icon="play" viewBox="0 0 24 24" aria-hidden="true"></svg>
+        <span class="tool-label">开始监控</span>
+      </button>
+    </div>
+  </header>
+
+  <dl class="overview">
+    <div class="stat"><dt>估值时间</dt><dd id="statTime">—</dd></div>
+    <div class="stat"><dt>触发提醒</dt><dd id="statTriggers">0</dd></div>
+    <div class="stat"><dt>当前涨幅最大</dt><dd id="statTop">—</dd></div>
+    <div class="stat"><dt>当前跌幅最大</dt><dd id="statBottom">—</dd></div>
+  </dl>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>监控基金</h2>
+      <span class="count" id="fundCount">0 只</span>
+      <span class="spacer"></span>
+      <button class="btn" type="button" id="addBtn">
+        <svg class="icon" data-icon="plus" viewBox="0 0 24 24" aria-hidden="true"></svg>添加基金
+      </button>
+    </div>
+    <div class="rows" id="rows"></div>
+    <div class="empty" id="rowsEmpty" hidden>还没有监控项，先添加一只基金。</div>
+  </section>
+
+  <section class="section">
+    <div class="section-head">
+      <h2>提醒记录</h2>
+      <span class="count" id="logCount">0 条</span>
+      <span class="spacer"></span>
+      <button class="btn ghost icon-only" type="button" id="clearLogsBtn" title="清空记录" aria-label="清空记录">
+        <svg class="icon" data-icon="trash-2" viewBox="0 0 24 24" aria-hidden="true"></svg>
+      </button>
+    </div>
+    <div class="logs" id="logs"></div>
+    <div class="empty" id="logsEmpty">暂无提醒记录。</div>
+  </section>
+
+</div>
+
+<dialog id="settings">
+  <div class="dialog-head">
+    <h2>推送设置</h2>
+    <button class="btn icon-only ghost" type="button" id="closeSettingsBtn" title="关闭" aria-label="关闭">
+      <svg class="icon" data-icon="x" viewBox="0 0 24 24" aria-hidden="true"></svg>
+    </button>
+  </div>
+  <div class="dialog-body">
+    <div class="field">
+      <label for="barkUrl">Bark 推送地址</label>
+      <input type="password" id="barkUrl" placeholder="https://api.day.app/你的Key" autocomplete="off" spellcheck="false">
+      <div class="check" style="margin-top:8px">
+        <input type="checkbox" id="showBark"><label for="showBark" style="margin:0;font-weight:400">显示地址</label>
+      </div>
+      <p class="hint">支持自建 Bark 服务，形如 https://你的域名/推送Key。</p>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="interval">轮询间隔（秒）</label>
+        <input type="number" id="interval" min="30" max="1800" step="10" value="60">
+      </div>
+      <div class="field">
+        <label for="level">推送级别</label>
+        <select id="level">
+          <option value="active">active（默认）</option>
+          <option value="timeSensitive">timeSensitive（时效性）</option>
+          <option value="critical">critical（关键）</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <div class="check"><input type="checkbox" id="tradeOnly"><label for="tradeOnly" style="margin:0;font-weight:400">仅交易时段轮询</label></div>
+      <div class="check" style="margin-top:10px"><input type="checkbox" id="oncePerDay"><label for="oncePerDay" style="margin:0;font-weight:400">同一方向每日只提醒一次</label></div>
+    </div>
+  </div>
+  <div class="dialog-foot">
+    <button class="btn" type="button" id="testPushBtn">
+      <svg class="icon" data-icon="send" viewBox="0 0 24 24" aria-hidden="true"></svg>发送测试
+    </button>
+    <button class="btn primary" type="button" id="saveSettingsBtn">
+      <svg class="icon" data-icon="check" viewBox="0 0 24 24" aria-hidden="true"></svg>保存设置
+    </button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ── 图标（lucide，内联自托管） ─────────────── */
+  var ICONS = {
+    "bell-ring": '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/>',
+    "check": '<path d="M20 6 9 17l-5-5"/>',
+    "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+    "circle-check": '<circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/>',
+    "clock": '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    "external-link": '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    "minus": '<path d="M5 12h14"/>',
+    "pause": '<rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/>',
+    "play": '<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/>',
+    "plus": '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    "radio": '<path d="M16.247 7.761a6 6 0 0 1 0 8.478"/><path d="M19.075 4.933a10 10 0 0 1 0 14.134"/><path d="M4.925 19.067a10 10 0 0 1 0-14.134"/><path d="M7.753 16.239a6 6 0 0 1 0-8.478"/><circle cx="12" cy="12" r="2"/>',
+    "refresh-cw": '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+    "send": '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+    "settings": '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>',
+    "trash-2": '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+    "trending-down": '<path d="M16 17h6v-6"/><path d="m22 17-8.5-8.5-5 5L2 7"/>',
+    "trending-up": '<path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/>',
+    "triangle-alert": '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    "x": '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
+  };
+  function paintIcons(root) {
+    var scope = root || document;
+    var nodes = scope.querySelectorAll("svg[data-icon]:not([data-painted])");
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      var name = node.getAttribute("data-icon");
+      if (ICONS[name]) {
+        node.innerHTML = ICONS[name];
+        node.setAttribute("data-painted", "1");
+      }
+    }
+  }
+  function iconSvg(name) {
+    return '<svg class="icon" data-icon="' + name + '" viewBox="0 0 24 24" aria-hidden="true">' + (ICONS[name] || "") + "</svg>";
+  }
+  paintIcons(document);
+
+  /* ── 默认配置：Notion 中的四只持仓 ───────────── */
+  var DEFAULT_FUNDS = [
+    { code: "000015", name: "华夏纯债债券A", layer: "债券层", upPct: 0.5, downPct: 0.5, enabled: true },
+    { code: "022459", name: "易方达中证A500ETF联接A", layer: "股票层", upPct: 1.5, downPct: 1.5, enabled: true },
+    { code: "016452", name: "南方纳斯达克100指数发起(QDII)A", layer: "股票层", upPct: 2, downPct: 2, enabled: true },
+    { code: "021457", name: "易方达港股通红利低波ETF联接A", layer: "股票层", upPct: 1.5, downPct: 1.5, enabled: true }
+  ];
+
+  var CONFIG_KEY = "fundAlert.config.v2";
+  var LOG_KEY = "fundAlert.logs.v1";
+  var FIRED_KEY = "fundAlert.fired.v1";
+  var LEGACY_CONFIG_KEY = "fundAlert.config.v1";
+
+  var config = {
+    barkUrl: "",
+    interval: 60,
+    level: "active",
+    tradeOnly: true,
+    oncePerDay: true,
+    funds: DEFAULT_FUNDS.slice()
+  };
+  var quotes = {};
+  var logs = [];
+  var fired = {};
+  var running = false;
+  var lastRun = 0;
+  var nextRunAt = 0;
+
+  var el = {
+    sessionText: document.getElementById("sessionText"),
+    statusPill: document.getElementById("statusPill"),
+    statusText: document.getElementById("statusText"),
+    toggleBtn: document.getElementById("toggleBtn"),
+    testBtn: document.getElementById("testBtn"),
+    refreshBtn: document.getElementById("refreshBtn"),
+    settingsBtn: document.getElementById("settingsBtn"),
+    rows: document.getElementById("rows"),
+    rowsEmpty: document.getElementById("rowsEmpty"),
+    fundCount: document.getElementById("fundCount"),
+    logs: document.getElementById("logs"),
+    logsEmpty: document.getElementById("logsEmpty"),
+    logCount: document.getElementById("logCount"),
+    clearLogsBtn: document.getElementById("clearLogsBtn"),
+    statTime: document.getElementById("statTime"),
+    statTriggers: document.getElementById("statTriggers"),
+    statTop: document.getElementById("statTop"),
+    statBottom: document.getElementById("statBottom"),
+    settings: document.getElementById("settings"),
+    barkUrl: document.getElementById("barkUrl"),
+    showBark: document.getElementById("showBark"),
+    interval: document.getElementById("interval"),
+    level: document.getElementById("level"),
+    tradeOnly: document.getElementById("tradeOnly"),
+    oncePerDay: document.getElementById("oncePerDay"),
+    closeSettingsBtn: document.getElementById("closeSettingsBtn"),
+    saveSettingsBtn: document.getElementById("saveSettingsBtn"),
+    testPushBtn: document.getElementById("testPushBtn"),
+    addBtn: document.getElementById("addBtn"),
+    toast: document.getElementById("toast")
+  };
+
+  /* ── 存储 ─────────────────────────────────────── */
+  function loadStore() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(CONFIG_KEY) || "null");
+      if (saved && typeof saved === "object") {
+        if (typeof saved.barkUrl === "string") config.barkUrl = saved.barkUrl;
+        if (saved.interval) config.interval = Number(saved.interval) || 60;
+        if (saved.level) config.level = saved.level;
+        if (typeof saved.tradeOnly === "boolean") config.tradeOnly = saved.tradeOnly;
+        if (typeof saved.oncePerDay === "boolean") config.oncePerDay = saved.oncePerDay;
+        if (Array.isArray(saved.funds) && saved.funds.length) config.funds = saved.funds;
+      } else {
+        var legacy = JSON.parse(localStorage.getItem(LEGACY_CONFIG_KEY) || "null");
+        if (legacy && typeof legacy.barkUrl === "string" && legacy.barkUrl) config.barkUrl = legacy.barkUrl;
+      }
+      logs = JSON.parse(localStorage.getItem(LOG_KEY) || "[]") || [];
+      fired = JSON.parse(localStorage.getItem(FIRED_KEY) || "{}") || {};
+    } catch (error) {
+      logs = [];
+      fired = {};
+    }
+    config.funds = config.funds
+      .filter(function (fund) { return fund && /^\d{6}$/.test(String(fund.code || "")); })
+      .map(function (fund) {
+        return {
+          code: String(fund.code),
+          name: fund.name || "",
+          layer: fund.layer || "",
+          upPct: fund.upPct == null || fund.upPct === "" ? null : Number(fund.upPct),
+          downPct: fund.downPct == null || fund.downPct === "" ? null : Number(fund.downPct),
+          enabled: fund.enabled !== false
+        };
+      });
+  }
+  function persist() { saveConfig(); saveLogs(); saveFired(); }
+  function saveConfig() { try { localStorage.setItem(CONFIG_KEY, JSON.stringify(config)); } catch (e) {} }
+  function saveLogs() { try { localStorage.setItem(LOG_KEY, JSON.stringify(logs.slice(0, 60))); } catch (e) {} }
+  function saveFired() { try { localStorage.setItem(FIRED_KEY, JSON.stringify(fired)); } catch (e) {} }
+
+  /* 从 URL 参数注入 Bark 地址（首次配置用，可避免把 Key 提交到公开仓库） */
+  function absorbUrlBark() {
+    var params = new URLSearchParams(location.search);
+    if (!params.has("bark")) params = new URLSearchParams(location.hash.replace(/^#/, ""));
+    var value = (params.get("bark") || "").trim();
+    if (!value) return;
+    config.barkUrl = value;
+    saveConfig();
+    try {
+      var url = new URL(location.href);
+      url.searchParams.delete("bark");
+      var hash = new URLSearchParams(url.hash.replace(/^#/, ""));
+      hash.delete("bark");
+      url.hash = hash.toString();
+      history.replaceState(null, "", url.pathname + (url.search || "") + (url.hash ? "#" + url.hash : ""));
+    } catch (error) { /* 忽略地址清理失败 */ }
+  }
+
+  function toast(message, type) {
+    el.toast.textContent = message;
+    el.toast.className = "toast show" + (type ? " " + type : "");
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(function () { el.toast.className = "toast"; }, 3200);
+  }
+
+  /* ── 时间 ─────────────────────────────────────── */
+  function shanghaiNow() {
+    var parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+    }).formatToParts(new Date());
+    var map = {};
+    parts.forEach(function (p) { map[p.type] = p.value; });
+    return {
+      date: map.year + "-" + map.month + "-" + map.day,
+      time: map.hour + ":" + map.minute + ":" + map.second,
+      clock: map.hour + ":" + map.minute,
+      weekday: new Date(map.year + "-" + map.month + "-" + map.day + "T00:00:00+08:00").getUTCDay()
+    };
+  }
+  function minutesOf(clock) {
+    return Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3, 5));
+  }
+  /* 覆盖 A 股与港股时段，便于同时观察港股与 QDII 联接基金 */
+  function inTradingSession(now) {
+    if (now.weekday < 1 || now.weekday > 5) return false;
+    var m = minutesOf(now.clock);
+    return (m >= 555 && m < 690) || (m >= 780 && m < 970);
+  }
+  function sessionLabel(now) {
+    if (now.weekday < 1 || now.weekday > 5) return "周末休市";
+    var m = minutesOf(now.clock);
+    if (m < 555) return "开盘前 · " + now.clock;
+    if (m < 690) return "早盘进行中 · " + now.clock;
+    if (m < 780) return "午间休市 · " + now.clock;
+    if (m < 970) return "午盘进行中 · " + now.clock;
+    return "已收盘 · " + now.clock;
+  }
+
+  /* ── 数据 ─────────────────────────────────────── */
+  function fetchQuotes(codes) {
+    var valid = codes.filter(function (code) { return /^\d{6}$/.test(code); });
+    if (!valid.length) return Promise.resolve([]);
+    var params = new URLSearchParams({
+      Fcodes: valid.join(","), pageIndex: "1", pageSize: String(valid.length),
+      Sort: "", SortColumn: "", IsShowSE: "false", P: "F",
+      deviceid: "fund-alert-pages", plat: "Iphone", product: "EFund", version: "6.2.8"
+    });
+    return fetch("https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?" + params.toString())
+      .then(function (res) {
+        if (!res.ok) throw new Error("估值接口 HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data || data.Success === false || !Array.isArray(data.Datas)) {
+          throw new Error((data && data.ErrMsg) || "估值接口返回异常");
+        }
+        return data.Datas.map(function (item) {
+          var rawTime = String(item.GZTIME || "");
+          var chunks = rawTime.split(" ");
+          var est = item.GSZZL === "" || item.GSZZL == null ? null : Number(item.GSZZL);
+          return {
+            code: String(item.FCODE || ""),
+            name: String(item.SHORTNAME || ""),
+            estNav: item.GSZ === "" || item.GSZ == null ? null : Number(item.GSZ),
+            estChangeRate: est != null && isFinite(est) ? est : null,
+            quoteDate: chunks[0] || "",
+            quoteClock: chunks[1] || "",
+            quoteTime: rawTime,
+            nav: item.NAV === "" || item.NAV == null ? null : Number(item.NAV),
+            navChangeRate: item.NAVCHGRT === "" || item.NAVCHGRT == null ? null : Number(item.NAVCHGRT),
+            navDate: String(item.PDATE || "")
+          };
+        });
+      });
+  }
+
+  /* ── Bark ─────────────────────────────────────── */
+  function barkEndpoint(rawUrl, title, body) {
+    var raw = String(rawUrl || "").trim();
+    if (!/^https:\/\//i.test(raw)) throw new Error("请先在设置里填写 Bark 推送地址");
+    var parsed = new URL(raw);
+    var key = parsed.pathname.split("/").filter(Boolean)[0];
+    if (!key) throw new Error("Bark 地址里缺少推送 Key");
+    var target = new URL(parsed.origin + "/" + encodeURIComponent(key) + "/" + encodeURIComponent(title) + "/" + encodeURIComponent(body));
+    if (config.level) target.searchParams.set("level", config.level);
+    target.searchParams.set("group", "基金提醒");
+    target.searchParams.set("icon", "https://www.eastmoney.com/favicon.ico");
+    return target.toString();
+  }
+  function pushBark(title, body) {
+    return fetch(barkEndpoint(config.barkUrl, title, body), { mode: "cors" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("Bark HTTP " + res.status);
+        return res.text();
+      });
+  }
+
+  /* ── 渲染 ─────────────────────────────────────── */
+  function toneOf(rate) {
+    if (rate == null || !isFinite(rate)) return "flat";
+    if (rate > 0) return "up";
+    if (rate < 0) return "down";
+    return "flat";
+  }
+  function fmtPct(rate) {
+    if (rate == null || !isFinite(rate)) return "—";
+    var sign = rate > 0 ? "+" : "";
+    return sign + rate.toFixed(2) + "%";
+  }
+  function fmtNum(value) {
+    return value == null || !isFinite(value) ? "—" : value.toFixed(4);
+  }
+  function triggerOf(fund, quote) {
+    if (!quote || quote.estChangeRate == null || fund.enabled === false) return null;
+    var rate = quote.estChangeRate;
+    if (fund.upPct != null && fund.upPct > 0 && rate >= fund.upPct) return "up";
+    if (fund.downPct != null && fund.downPct > 0 && rate <= -fund.downPct) return "down";
+    return null;
+  }
+  function renderRows() {
+    el.rows.textContent = "";
+    el.fundCount.textContent = config.funds.length + " 只";
+    el.rowsEmpty.hidden = config.funds.length > 0;
+
+    config.funds.forEach(function (fund, index) {
+      var quote = quotes[fund.code] || null;
+      var rate = quote ? quote.estChangeRate : null;
+      var tone = toneOf(rate);
+      var trigger = triggerOf(fund, quote);
+
+      var row = document.createElement("article");
+      row.className = "row";
+      row.setAttribute("data-layer", fund.layer || "");
+      row.setAttribute("data-off", String(fund.enabled === false));
+      if (trigger) row.setAttribute("data-trigger", trigger);
+
+      /* 身份 */
+      var identity = document.createElement("div");
+      identity.className = "identity";
+      var bar = document.createElement("span");
+      bar.className = "layer-bar";
+      identity.appendChild(bar);
+      var nameBox = document.createElement("div");
+      nameBox.className = "name-box";
+      var nameText = document.createElement("div");
+      nameText.className = "name-text";
+      nameText.textContent = fund.name || fund.code;
+      nameText.setAttribute("contenteditable", "plaintext-only");
+      nameText.setAttribute("spellcheck", "false");
+      nameText.setAttribute("role", "textbox");
+      nameText.setAttribute("aria-label", "基金名称");
+      nameText.setAttribute("title", "点击可修改名称");
+      nameText.addEventListener("blur", function () {
+        var val = nameText.textContent.trim();
+        config.funds[index].name = val || config.funds[index].code;
+        saveConfig();
+      });
+      nameText.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          nameText.blur();
+        }
+      });
+      var meta = document.createElement("div");
+      meta.className = "meta";
+      var codeInput = document.createElement("input");
+      codeInput.className = "code-input";
+      codeInput.value = fund.code;
+      codeInput.inputMode = "numeric";
+      codeInput.maxLength = 6;
+      codeInput.setAttribute("aria-label", "基金代码");
+      codeInput.addEventListener("change", function () {
+        var next = codeInput.value.trim();
+        if (!/^\d{6}$/.test(next)) {
+          codeInput.value = config.funds[index].code;
+          toast("基金代码需要 6 位数字", "error");
+          return;
+        }
+        config.funds[index].code = next;
+        persist();
+        runCheck(true);
+      });
+      meta.appendChild(codeInput);
+      if (fund.layer) {
+        var tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = fund.layer;
+        meta.appendChild(tag);
+      }
+      nameBox.appendChild(nameText);
+      nameBox.appendChild(meta);
+      identity.appendChild(nameBox);
+
+      /* 涨跌 */
+      var rateBox = document.createElement("div");
+      rateBox.className = "rate";
+      var rateValue = document.createElement("div");
+      rateValue.className = "rate-value " + tone;
+      rateValue.textContent = fmtPct(rate);
+      var rateNote = document.createElement("div");
+      rateNote.className = "rate-note";
+      rateNote.textContent = quote
+        ? (quote.estNav == null ? "估值 " + fmtNum(quote.nav) : "估值 " + fmtNum(quote.estNav))
+        : "暂无估值";
+      rateBox.appendChild(rateValue);
+      rateBox.appendChild(rateNote);
+
+      /* 阈值刻度 */
+      var meterWrap = document.createElement("div");
+      meterWrap.className = "meter-wrap";
+      var meter = document.createElement("div");
+      meter.className = "meter";
+      var zero = document.createElement("span");
+      zero.className = "meter-zero";
+      var fill = document.createElement("span");
+      fill.className = "meter-fill " + (tone === "down" ? "down" : "up");
+      var threshold = tone === "down" ? (fund.downPct || 0) : (fund.upPct || 0);
+      var ratio = (rate != null && threshold > 0) ? Math.min(Math.abs(rate) / threshold, 1) : 0;
+      var half = ratio * 50;
+      if (tone === "down") { fill.style.left = (50 - half) + "%"; fill.style.width = half + "%"; }
+      else { fill.style.left = "50%"; fill.style.width = half + "%"; }
+      meter.appendChild(fill);
+      meter.appendChild(zero);
+      var meterLabel = document.createElement("div");
+      meterLabel.className = "meter-label";
+      if (rate == null) {
+        meterLabel.textContent = "等待盘中估值";
+      } else if (trigger) {
+        meterLabel.innerHTML = trigger === "up" ? "已触发 <b>涨超</b>阈值" : "已触发 <b>跌超</b>阈值";
+      } else if (threshold > 0) {
+        meterLabel.textContent = "距阈值 " + (threshold - Math.abs(rate)).toFixed(2) + "%";
+      } else {
+        meterLabel.textContent = "未设阈值";
+      }
+      meterWrap.appendChild(meter);
+      meterWrap.appendChild(meterLabel);
+
+      /* 阈值输入 */
+      function thresholdCell(kind, labelText, value) {
+        var cell = document.createElement("div");
+        cell.className = "threshold " + (kind === "up" ? "up-th" : "down-th");
+        var label = document.createElement("label");
+        label.textContent = labelText;
+        var num = document.createElement("div");
+        num.className = "num";
+        var input = document.createElement("input");
+        input.type = "number";
+        input.min = "0";
+        input.step = "0.1";
+        input.value = value == null ? "" : value;
+        input.placeholder = "0";
+        input.setAttribute("aria-label", labelText);
+        input.addEventListener("change", function () {
+          var next = input.value === "" ? null : Number(input.value);
+          if (next != null && (!isFinite(next) || next < 0)) {
+            input.value = "";
+            toast("阈值需要是非负数字", "error");
+            return;
+          }
+          if (kind === "up") config.funds[index].upPct = next;
+          else config.funds[index].downPct = next;
+          saveConfig();
+          renderRows();
+        });
+        var unit = document.createElement("span");
+        unit.textContent = "%";
+        num.appendChild(input);
+        num.appendChild(unit);
+        cell.appendChild(label);
+        cell.appendChild(num);
+        return cell;
+      }
+      var upCell = thresholdCell("up", "涨超提醒", fund.upPct);
+      var downCell = thresholdCell("down", "跌超提醒", fund.downPct);
+
+      /* 操作 */
+      var actions = document.createElement("div");
+      actions.className = "row-actions";
+      var switchLabel = document.createElement("label");
+      switchLabel.className = "switch";
+      switchLabel.title = "启用/暂停该基金";
+      var switchInput = document.createElement("input");
+      switchInput.type = "checkbox";
+      switchInput.checked = fund.enabled !== false;
+      switchInput.setAttribute("aria-label", "启用监控");
+      switchInput.addEventListener("change", function () {
+        config.funds[index].enabled = switchInput.checked;
+        saveConfig();
+        renderRows();
+      });
+      var switchTrack = document.createElement("span");
+      switchLabel.appendChild(switchInput);
+      switchLabel.appendChild(switchTrack);
+      var removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "btn icon-only ghost";
+      removeBtn.title = "删除";
+      removeBtn.setAttribute("aria-label", "删除该基金");
+      removeBtn.innerHTML = iconSvg("trash-2");
+      removeBtn.addEventListener("click", function () {
+        config.funds.splice(index, 1);
+        persist();
+        renderRows();
+        renderStats();
+      });
+      actions.appendChild(switchLabel);
+      actions.appendChild(removeBtn);
+
+      row.appendChild(identity);
+      row.appendChild(rateBox);
+      row.appendChild(meterWrap);
+      row.appendChild(upCell);
+      row.appendChild(downCell);
+      row.appendChild(actions);
+      el.rows.appendChild(row);
+    });
+    paintIcons(el.rows);
+  }
+
+  function renderStats() {
+    var list = config.funds
+      .map(function (fund) { return quotes[fund.code]; })
+      .filter(function (quote) { return quote && quote.estChangeRate != null; });
+    var latest = list.map(function (quote) { return quote.quoteTime; }).filter(Boolean).sort().pop();
+    el.statTime.textContent = latest || "—";
+    var today = shanghaiNow().date;
+    var count = logs.filter(function (log) { return log.date === today; }).length;
+    el.statTriggers.textContent = String(count);
+    if (list.length) {
+      var sorted = list.slice().sort(function (a, b) { return b.estChangeRate - a.estChangeRate; });
+      var top = sorted[0];
+      var bottom = sorted[sorted.length - 1];
+      setStat(el.statTop, top);
+      setStat(el.statBottom, bottom);
+    } else {
+      el.statTop.textContent = "—";
+      el.statBottom.textContent = "—";
+      el.statTop.className = "";
+      el.statBottom.className = "";
+    }
+  }
+  function setStat(node, quote) {
+    var tone = toneOf(quote.estChangeRate);
+    node.className = tone;
+    var shortName = (quote.name || quote.code).replace(/[（(].*?[）)]/g, "");
+    if (shortName.length > 10) shortName = shortName.slice(0, 10) + "…";
+    node.innerHTML = "";
+    node.appendChild(document.createTextNode(fmtPct(quote.estChangeRate)));
+    var small = document.createElement("small");
+    small.textContent = shortName;
+    node.appendChild(small);
+  }
+
+  function renderLogs() {
+    el.logs.textContent = "";
+    el.logCount.textContent = logs.length + " 条";
+    el.logsEmpty.hidden = logs.length > 0;
+    logs.slice(0, 30).forEach(function (log) {
+      var row = document.createElement("div");
+      row.className = "log";
+      var time = document.createElement("time");
+      time.textContent = log.time;
+      var main = document.createElement("div");
+      main.className = "log-main";
+      var strong = document.createElement("b");
+      strong.textContent = log.name;
+      main.appendChild(strong);
+      main.appendChild(document.createTextNode(" " + fmtPct(log.rate)));
+      var badge = document.createElement("span");
+      badge.className = "badge " + (log.sent === false ? "failed" : "sent");
+      badge.textContent = log.sent === false ? "推送失败" : "已推送";
+      row.appendChild(time);
+      row.appendChild(main);
+      row.appendChild(badge);
+      el.logs.appendChild(row);
+    });
+    paintIcons(el.logs);
+  }
+
+  function setStatus(state, text) {
+    el.statusPill.setAttribute("data-state", state);
+    el.statusText.textContent = text;
+  }
+  function renderStatus() {
+    var now = shanghaiNow();
+    el.sessionText.textContent = sessionLabel(now);
+    if (!running) {
+      setStatus("idle", "未监控");
+      el.toggleBtn.innerHTML = iconSvg("play") + '<span class="tool-label">开始监控</span>';
+      el.toggleBtn.classList.add("accent");
+      return;
+    }
+    var inside = inTradingSession(now);
+    if (config.tradeOnly && !inside) {
+      setStatus("closed", "已暂停 · 非交易时段");
+    } else {
+      setStatus(inside ? "running" : "open", inside ? "监控中" : "监控中 · 非交易时段");
+    }
+    el.toggleBtn.innerHTML = iconSvg("pause") + '<span class="tool-label">停止监控</span>';
+    el.toggleBtn.classList.remove("accent");
+  }
+
+  /* ── 提醒判定 ─────────────────────────────────── */
+  function firedKey(code, trigger, date) { return code + ":" + trigger + ":" + date; }
+  function handleAlert(fund, quote, trigger, now) {
+    var key = firedKey(fund.code, trigger, now.date);
+    if (config.oncePerDay && fired[key]) return;
+    fired[key] = true;
+    var direction = trigger === "up" ? "上涨" : "下跌";
+    var action = trigger === "up" ? "考虑卖出" : "考虑买入";
+    var threshold = trigger === "up" ? fund.upPct : fund.downPct;
+    var title = (fund.name || fund.code) + " " + direction + " " + fmtPct(quote.estChangeRate);
+    var body = [
+      "现估值 " + fmtNum(quote.estNav) + "（" + fmtPct(quote.estChangeRate) + "）",
+      "触发阈值 ±" + threshold + "%",
+      "估值时间 " + (quote.quoteTime || "—"),
+      action
+    ].join("\n");
+    pushBark(title, body).then(function () {
+      addLog(fund, quote, trigger, true, now);
+      toast(title);
+    }).catch(function (error) {
+      addLog(fund, quote, trigger, false, now);
+      toast("推送失败：" + error.message, "error");
+    }).then(function () {
+      saveFired();
+    });
+  }
+  function addLog(fund, quote, trigger, sent, now) {
+    logs.unshift({
+      date: now.date,
+      time: now.time.slice(0, 5),
+      code: fund.code,
+      name: fund.name || fund.code,
+      rate: quote.estChangeRate,
+      trigger: trigger,
+      sent: sent
+    });
+    if (logs.length > 60) logs.length = 60;
+    saveLogs();
+    renderLogs();
+    renderStats();
+  }
+
+  /* ── 主循环 ───────────────────────────────────── */
+  var busy = false;
+  function runCheck(force) {
+    if (busy) return Promise.resolve();
+    var now = shanghaiNow();
+    if (!force && config.tradeOnly && !inTradingSession(now)) {
+      renderStatus();
+      return Promise.resolve();
+    }
+    var codes = config.funds
+      .filter(function (fund) { return fund.enabled !== false; })
+      .map(function (fund) { return fund.code; });
+    busy = true;
+    return fetchQuotes(codes).then(function (list) {
+      list.forEach(function (quote) { quotes[quote.code] = quote; });
+      config.funds.forEach(function (fund) {
+        if (!fund.name && quotes[fund.code] && quotes[fund.code].name) {
+          fund.name = quotes[fund.code].name;
+        }
+      });
+      saveConfig();
+      renderRows();
+      renderStats();
+      list.forEach(function (quote) {
+        var fund = config.funds.filter(function (item) { return item.code === quote.code; })[0];
+        if (!fund) return;
+        var trigger = triggerOf(fund, quote);
+        if (trigger) handleAlert(fund, quote, trigger, now);
+      });
+      lastRun = Date.now();
+    }).catch(function (error) {
+      toast("获取估值失败：" + error.message, "error");
+    }).then(function () {
+      busy = false;
+      renderStatus();
+    });
+  }
+
+  function tick() {
+    renderStatus();
+    if (!running) return;
+    if (Date.now() >= nextRunAt) {
+      nextRunAt = Date.now() + Math.max(30, config.interval) * 1000;
+      runCheck(false);
+    }
+  }
+
+  function startMonitor() {
+    running = true;
+    nextRunAt = Date.now();
+    renderStatus();
+    runCheck(false);
+  }
+  function stopMonitor() {
+    running = false;
+    renderStatus();
+  }
+
+  /* ── 设置 ─────────────────────────────────────── */
+  function openSettings() {
+    el.barkUrl.value = config.barkUrl || "";
+    el.interval.value = config.interval;
+    el.level.value = config.level;
+    el.tradeOnly.checked = config.tradeOnly;
+    el.oncePerDay.checked = config.oncePerDay;
+    if (typeof el.settings.showModal === "function") el.settings.showModal();
+    else el.settings.setAttribute("open", "");
+  }
+  function closeSettings() {
+    if (typeof el.settings.close === "function") el.settings.close();
+    else el.settings.removeAttribute("open");
+  }
+  function saveSettings() {
+    var raw = el.barkUrl.value.trim();
+    if (raw && !/^https:\/\//i.test(raw)) {
+      toast("Bark 地址需要以 https:// 开头", "error");
+      return;
+    }
+    config.barkUrl = raw;
+    config.interval = Math.min(1800, Math.max(30, Number(el.interval.value) || 60));
+    config.level = el.level.value;
+    config.tradeOnly = el.tradeOnly.checked;
+    config.oncePerDay = el.oncePerDay.checked;
+    saveConfig();
+    closeSettings();
+    toast("设置已保存");
+    renderStatus();
+  }
+
+  /* ── 事件绑定 ─────────────────────────────────── */
+  el.toggleBtn.addEventListener("click", function () {
+    if (running) stopMonitor(); else startMonitor();
+  });
+  el.refreshBtn.addEventListener("click", function () { runCheck(true); });
+  el.settingsBtn.addEventListener("click", openSettings);
+  el.closeSettingsBtn.addEventListener("click", closeSettings);
+  el.saveSettingsBtn.addEventListener("click", saveSettings);
+  el.showBark.addEventListener("change", function () {
+    el.barkUrl.type = el.showBark.checked ? "text" : "password";
+  });
+  el.addBtn.addEventListener("click", function () {
+    config.funds.push({ code: "", name: "", layer: "", upPct: 1, downPct: 1, enabled: true });
+    renderRows();
+    var inputs = el.rows.querySelectorAll(".code-input");
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  });
+  el.clearLogsBtn.addEventListener("click", function () {
+    logs = [];
+    saveLogs();
+    renderLogs();
+    renderStats();
+  });
+  el.testBtn.addEventListener("click", function () { sendTest(); });
+  el.testPushBtn.addEventListener("click", function () {
+    var raw = el.barkUrl.value.trim();
+    if (!raw) { toast("请先填写 Bark 推送地址", "error"); return; }
+    var saved = config.barkUrl;
+    config.barkUrl = raw;
+    sendTest().then(function () { config.barkUrl = saved; }, function () { config.barkUrl = saved; });
+  });
+  el.settings.addEventListener("click", function (event) {
+    if (event.target === el.settings) closeSettings();
+  });
+
+  function sendTest() {
+    var now = shanghaiNow();
+    return pushBark("盘中基金提醒 · 测试", "推送通道正常\n" + now.date + " " + now.clock)
+      .then(function () { toast("测试推送已发送"); })
+      .catch(function (error) { toast("测试推送失败：" + error.message, "error"); });
+  }
+
+  /* ── 启动 ─────────────────────────────────────── */
+  loadStore();
+  absorbUrlBark();
+  renderRows();
+  renderLogs();
+  renderStats();
+  renderStatus();
+  runCheck(true);
+  setInterval(tick, 1000);
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) runCheck(true);
+  });
+})();
+</script>
+</body>
+</html>
