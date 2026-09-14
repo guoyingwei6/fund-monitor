@@ -713,16 +713,21 @@
           var raw = window["hq_str_fu_" + code];
           if (raw && typeof raw === "string") {
             var parts = raw.split(",");
-            if (parts.length >= 6) {
-              var estNav = Number(parts[3]);
-              var estRate = Number(parts[5]);
-              var nav = Number(parts[1]);
+            if (parts.length >= 8) {
+              var estNav = Number(parts[2]);
+              var nav = Number(parts[3]);
+              var estRate = Number(parts[6]);
+              var quoteDate = parts[7] ? parts[7].trim() : "";
+              var quoteClock = parts[1] ? parts[1].trim() : "";
+              var quoteTime = quoteDate && quoteClock ? (quoteDate + " " + quoteClock) : (quoteDate || quoteClock);
               result[code] = {
                 code: code,
-                name: parts[0] || "",
+                name: parts[0] ? parts[0].trim() : "",
                 estNav: isFinite(estNav) && estNav > 0 ? estNav : null,
                 estChangeRate: isFinite(estRate) ? estRate : null,
-                quoteTime: parts[4] || "",
+                quoteTime: quoteTime,
+                quoteDate: quoteDate,
+                quoteClock: quoteClock,
                 nav: isFinite(nav) && nav > 0 ? nav : null
               };
             }
@@ -792,14 +797,13 @@
         var sinaQ = sinaMap[code];
         if (!mergedMap[code]) {
           if (sinaQ) {
-            var chunks = (sinaQ.quoteTime || "").split(" ");
             mergedMap[code] = {
               code: code,
               name: sinaQ.name || "",
               estNav: sinaQ.estNav,
               estChangeRate: sinaQ.estChangeRate,
-              quoteDate: chunks[0] || "",
-              quoteClock: chunks[1] || "",
+              quoteDate: sinaQ.quoteDate || "",
+              quoteClock: sinaQ.quoteClock || "",
               quoteTime: sinaQ.quoteTime || "",
               nav: sinaQ.nav,
               navChangeRate: null,
@@ -815,14 +819,16 @@
             if (emQ.estNav == null && sinaQ.estNav != null) {
               emQ.estNav = sinaQ.estNav;
             }
-            if (!emQ.quoteTime && sinaQ.quoteTime) {
+            if ((!emQ.quoteTime || !emQ.quoteDate) && sinaQ.quoteTime) {
               emQ.quoteTime = sinaQ.quoteTime;
-              var sChunks = sinaQ.quoteTime.split(" ");
-              emQ.quoteDate = sChunks[0] || "";
-              emQ.quoteClock = sChunks[1] || "";
+              emQ.quoteDate = sinaQ.quoteDate;
+              emQ.quoteClock = sinaQ.quoteClock;
             }
             if (!emQ.name && sinaQ.name) {
               emQ.name = sinaQ.name;
+            }
+            if (emQ.nav == null && sinaQ.nav != null) {
+              emQ.nav = sinaQ.nav;
             }
           }
         }

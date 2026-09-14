@@ -112,7 +112,7 @@ class FundIntradayAlertTest(unittest.TestCase):
     @patch("fund_intraday_alert.requests.get")
     def test_fetch_sina_quotes(self, mock_get: MagicMock) -> None:
         mock_resp = MagicMock()
-        mock_resp.text = 'var hq_str_fu_022459="易方达中证A500ETF联接A,1.2319,1.2319,1.2273,2026-09-14 10:15:00,-0.37";'
+        mock_resp.text = 'var hq_str_fu_022459="易方达中证A500ETF联接A,10:38:00,1.2293,1.2319,1.2319,-0.1138,-0.2122,2026-09-14,1.2268,-0.4137";'
         mock_get.return_value = mock_resp
 
         quotes = fetch_sina_quotes(["022459"])
@@ -120,10 +120,11 @@ class FundIntradayAlertTest(unittest.TestCase):
         q = quotes["022459"]
         self.assertEqual(q["code"], "022459")
         self.assertEqual(q["name"], "易方达中证A500ETF联接A")
-        self.assertEqual(q["est_rate"], -0.37)
-        self.assertEqual(q["est_nav"], 1.2273)
-        self.assertEqual(q["gztime"], "2026-09-14 10:15:00")
+        self.assertEqual(q["est_rate"], -0.2122)
+        self.assertEqual(q["est_nav"], 1.2293)
+        self.assertEqual(q["gztime"], "2026-09-14 10:38:00")
         self.assertEqual(q["nav"], 1.2319)
+        self.assertEqual(q["nav_date"], "2026-09-14")
 
     @patch("fund_intraday_alert.fetch_sina_quotes")
     @patch("fund_intraday_alert.fetch_eastmoney_quotes")

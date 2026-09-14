@@ -213,31 +213,35 @@ def fetch_sina_quotes(codes: list[str]) -> dict[str, dict]:
         if not raw_val:
             continue
         parts = raw_val.split(",")
-        if len(parts) < 6:
+        if len(parts) < 8:
             continue
         try:
-            nav = float(parts[1]) if parts[1] else None
-        except ValueError:
-            nav = None
-
-        try:
-            est_nav = float(parts[3]) if parts[3] else None
+            est_nav = float(parts[2]) if parts[2] else None
         except ValueError:
             est_nav = None
 
         try:
-            est_rate = float(parts[5]) if parts[5] else None
+            nav = float(parts[3]) if parts[3] else None
+        except ValueError:
+            nav = None
+
+        try:
+            est_rate = float(parts[6]) if parts[6] else None
         except ValueError:
             est_rate = None
+
+        date_str = parts[7].strip() if len(parts) > 7 else ""
+        time_str = parts[1].strip() if len(parts) > 1 else ""
+        gztime = f"{date_str} {time_str}".strip() if (date_str or time_str) else ""
 
         quotes[code] = {
             "code": code,
             "name": parts[0].strip(),
             "est_nav": est_nav,
             "est_rate": est_rate,
-            "gztime": parts[4].strip(),
+            "gztime": gztime,
             "nav": nav,
-            "nav_date": "",
+            "nav_date": date_str,
         }
     return quotes
 
@@ -267,6 +271,8 @@ def fetch_realtime_quotes(codes: list[str]) -> dict[str, dict]:
                     em_q["gztime"] = s_q["gztime"]
                 if not em_q.get("name") and s_q.get("name"):
                     em_q["name"] = s_q["name"]
+                if not em_q.get("nav") and s_q.get("nav"):
+                    em_q["nav"] = s_q["nav"]
 
     return quotes
 
