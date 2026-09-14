@@ -692,6 +692,131 @@
   }
 
   /* ── 数据 ─────────────────────────────────────── */
+  /* ── 异步从 data/quotes.json 读取云端定时巡检最新快照 ── */
+  function loadCloudQuotes() {
+    return fetch("data/quotes.json?t=" + Date.now())
+      .then(function (res) {
+        if (!res.ok) return {};
+        return res.json();
+      })
+      .then(function (data) {
+        return (data && data.quotes) ? data.quotes : {};
+      })
+      .catch(function () {
+        return {};
+      });
+  }
+
+  /* ── 天天基金官方公开 JSONP 实时估值（跨域无 Referer 限制） ── */
+  function fetchFundGzQuotes(codes) {
+    return new Promise(function (resolve) {
+      var valid = codes.filter(function (c) { return /^\d{6}$/.test(c); });
+      if (!valid.length) return resolve({});
+      var results = {};
+      var pending = valid.length;
+
+      window.jsonpgz = function (data) {
+        if (data && data.fundcode) {
+          var estNav = Number(data.gsz);
+          var estRate = Number(data.gszzl);
+          var nav = Number(data.dwjz);
+          var chunks = String(data.gztime || "").split(" ");
+          results[data.fundcode] = {
+            code: data.fundcode,
+            name: data.name || "",
+            estNav: isFinite(estNav) && estNav > 0 ? estNav : null,
+            estChangeRate: isFinite(estRate) ? estRate : null,
+            quoteTime: data.gztime || "",
+            quoteDate: chunks[0] || "",
+            quoteClock: chunks[1] || "",
+            nav: isFinite(nav) && nav > 0 ? nav : null,
+            navDate: data.jzrq || ""
+          };
+        }
+      };
+
+      var timer = setTimeout(function () {
+        done();
+      }, 4000);
+
+      function checkDone() {
+        pending--;
+        if (pending <= 0) done();
+      }
+
+      function done() {
+        clearTimeout(timer);
+        resolve(results);
+      }
+
+      valid.forEach(function (code) {
+        var script = document.createElement("script");
+        script.src = "https://fundgz.1234567.com.cn/js/" + code + ".js?rt=" + Date.now();
+        script.onload = function () {
+          if (script.parentNode) script.parentNode.removeChild(script);
+          checkDone();
+        };
+        script.onerror = function () {
+          if (script.parentNode) script.parentNode.removeChild(script);
+          checkDone();
+        };
+        document.head.appendChild(script);
+      });
+    });
+  }
+
+  /* ── 腾讯开放证券行情接口（跨域无 Referer 限制） ── */
+  function fetchTencentQuotes(codes) {
+    return new Promise(function (resolve) {
+      var valid = codes.filter(function (c) { return /^\d{6}$/.test(c); });
+      if (!valid.length) return resolve({});
+      var script = document.createElement("script");
+      script.src = "https://qt.gtimg.cn/q=" + valid.map(function (c) { return "jj" + c; }).join(",") + "&_t=" + Date.now();
+      var timer = setTimeout(function () {
+        cleanup();
+        resolve({});
+      }, 4000);
+      function cleanup() {
+        clearTimeout(timer);
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+      script.onload = function () {
+        var result = {};
+        valid.forEach(function (code) {
+          var raw = window["v_jj" + code];
+          if (raw && typeof raw === "string") {
+            var parts = raw.split("~");
+            if (parts.length >= 8) {
+              var estNav = Number(parts[3]);
+              var nav = Number(parts[4]);
+              var estRate = Number(parts[7]);
+              var quoteTime = parts[8] || "";
+              var chunks = quoteTime.split(" ");
+              result[code] = {
+                code: code,
+                name: parts[1] || "",
+                estNav: isFinite(estNav) && estNav > 0 ? estNav : null,
+                estChangeRate: isFinite(estRate) ? estRate : null,
+                quoteTime: quoteTime,
+                quoteDate: chunks[0] || "",
+                quoteClock: chunks[1] || "",
+                nav: isFinite(nav) && nav > 0 ? nav : null
+              };
+            }
+          }
+          try { delete window["v_jj" + code]; } catch (e) {}
+        });
+        cleanup();
+        resolve(result);
+      };
+      script.onerror = function () {
+        cleanup();
+        resolve({});
+      };
+      document.head.appendChild(script);
+    });
+  }
+
   function fetchSinaQuotes(codes) {
     return new Promise(function (resolve) {
       var valid = codes.filter(function (c) { return /^\d{6}$/.test(c); });
@@ -748,6 +873,12 @@
   function fetchQuotes(codes) {
     var valid = codes.filter(function (code) { return /^\d{6}$/.test(code); });
     if (!valid.length) return Promise.resolve([]);
+
+    var cloudPromise = loadCloudQuotes();
+    var fundGzPromise = fetchFundGzQuotes(valid);
+    var tencentPromise = fetchTencentQuotes(valid);
+    var sinaPromise = fetchSinaQuotes(valid);
+
     var params = new URLSearchParams({
       Fcodes: valid.join(","), pageIndex: "1", pageSize: String(valid.length),
       Sort: "", SortColumn: "", IsShowSE: "false", P: "F",
@@ -782,54 +913,119 @@
         return [];
       });
 
-    var sinaPromise = fetchSinaQuotes(valid);
-
-    return Promise.all([eastmoneyPromise, sinaPromise]).then(function (results) {
-      var eastmoneyList = results[0] || [];
-      var sinaMap = results[1] || {};
+    return Promise.all([cloudPromise, eastmoneyPromise, fundGzPromise, tencentPromise, sinaPromise]).then(function (results) {
+      var cloudQuotes = results[0] || {};
+      var eastmoneyList = results[1] || [];
+      var fundGzMap = results[2] || {};
+      var tencentMap = results[3] || {};
+      var sinaMap = results[4] || {};
       var mergedMap = {};
 
-      eastmoneyList.forEach(function (q) {
-        mergedMap[q.code] = q;
+      // 1. 先用云端巡检验证过的实时快照作为稳固底座
+      valid.forEach(function (code) {
+        var cQ = cloudQuotes[code];
+        if (cQ) {
+          var gz = cQ.gztime || "";
+          var chunks = gz.split(" ");
+          mergedMap[code] = {
+            code: code,
+            name: cQ.name || "",
+            estNav: cQ.est_nav != null ? Number(cQ.est_nav) : null,
+            estChangeRate: cQ.est_rate != null ? Number(cQ.est_rate) : null,
+            quoteTime: gz,
+            quoteDate: chunks[0] || "",
+            quoteClock: chunks[1] || "",
+            nav: cQ.nav != null ? Number(cQ.nav) : null,
+            navChangeRate: null,
+            navDate: cQ.nav_date || ""
+          };
+        }
       });
 
-      valid.forEach(function (code) {
-        var sinaQ = sinaMap[code];
-        if (!mergedMap[code]) {
-          if (sinaQ) {
-            mergedMap[code] = {
-              code: code,
-              name: sinaQ.name || "",
-              estNav: sinaQ.estNav,
-              estChangeRate: sinaQ.estChangeRate,
-              quoteDate: sinaQ.quoteDate || "",
-              quoteClock: sinaQ.quoteClock || "",
-              quoteTime: sinaQ.quoteTime || "",
-              nav: sinaQ.nav,
-              navChangeRate: null,
-              navDate: ""
-            };
-          }
+      // 2. 补充东财官方移动端收盘净值与可用估值
+      eastmoneyList.forEach(function (q) {
+        if (!mergedMap[q.code]) {
+          mergedMap[q.code] = q;
         } else {
-          var emQ = mergedMap[code];
-          if (sinaQ) {
-            if (emQ.estChangeRate == null && sinaQ.estChangeRate != null) {
-              emQ.estChangeRate = sinaQ.estChangeRate;
+          var curr = mergedMap[q.code];
+          if (q.nav != null) curr.nav = q.nav;
+          if (q.navDate) curr.navDate = q.navDate;
+          if (q.navChangeRate != null) curr.navChangeRate = q.navChangeRate;
+          if (q.estChangeRate != null) {
+            curr.estChangeRate = q.estChangeRate;
+            curr.estNav = q.estNav;
+            curr.quoteTime = q.quoteTime;
+            curr.quoteDate = q.quoteDate;
+            curr.quoteClock = q.quoteClock;
+          }
+          if (!curr.name && q.name) curr.name = q.name;
+        }
+      });
+
+      // 3. 补充天天基金公开 JSONP 实时估值 (fundgz)
+      valid.forEach(function (code) {
+        var gzQ = fundGzMap[code];
+        if (gzQ && gzQ.estChangeRate != null) {
+          if (!mergedMap[code]) {
+            mergedMap[code] = gzQ;
+          } else {
+            var curr = mergedMap[code];
+            curr.estChangeRate = gzQ.estChangeRate;
+            if (gzQ.estNav != null) curr.estNav = gzQ.estNav;
+            if (gzQ.quoteTime) {
+              curr.quoteTime = gzQ.quoteTime;
+              curr.quoteDate = gzQ.quoteDate;
+              curr.quoteClock = gzQ.quoteClock;
             }
-            if (emQ.estNav == null && sinaQ.estNav != null) {
-              emQ.estNav = sinaQ.estNav;
+            if (!curr.nav && gzQ.nav) curr.nav = gzQ.nav;
+            if (!curr.navDate && gzQ.navDate) curr.navDate = gzQ.navDate;
+            if (!curr.name && gzQ.name) curr.name = gzQ.name;
+          }
+        }
+      });
+
+      // 4. 补充腾讯证券行情 (qt.gtimg)
+      valid.forEach(function (code) {
+        var tQ = tencentMap[code];
+        if (tQ && tQ.estChangeRate != null) {
+          if (!mergedMap[code]) {
+            mergedMap[code] = tQ;
+          } else {
+            var curr = mergedMap[code];
+            if (curr.estChangeRate == null) {
+              curr.estChangeRate = tQ.estChangeRate;
+              if (tQ.estNav != null) curr.estNav = tQ.estNav;
+              if (tQ.quoteTime) {
+                curr.quoteTime = tQ.quoteTime;
+                curr.quoteDate = tQ.quoteDate;
+                curr.quoteClock = tQ.quoteClock;
+              }
             }
-            if ((!emQ.quoteTime || !emQ.quoteDate) && sinaQ.quoteTime) {
-              emQ.quoteTime = sinaQ.quoteTime;
-              emQ.quoteDate = sinaQ.quoteDate;
-              emQ.quoteClock = sinaQ.quoteClock;
+            if (!curr.nav && tQ.nav) curr.nav = tQ.nav;
+            if (!curr.name && tQ.name) curr.name = tQ.name;
+          }
+        }
+      });
+
+      // 5. 补充新浪接口 (sina fu_)
+      valid.forEach(function (code) {
+        var sQ = sinaMap[code];
+        if (sQ && sQ.estChangeRate != null) {
+          if (!mergedMap[code]) {
+            mergedMap[code] = sQ;
+          } else {
+            var curr = mergedMap[code];
+            if (curr.estChangeRate == null) {
+              curr.estChangeRate = sQ.estChangeRate;
+              if (sQ.estNav != null) curr.estNav = sQ.estNav;
+              if (sQ.quoteTime) {
+                curr.quoteTime = sQ.quoteTime;
+                curr.quoteDate = sQ.quoteDate;
+                curr.quoteClock = sQ.quoteClock;
+              }
             }
-            if (!emQ.name && sinaQ.name) {
-              emQ.name = sinaQ.name;
-            }
-            if (emQ.nav == null && sinaQ.nav != null) {
-              emQ.nav = sinaQ.nav;
-            }
+            if (!curr.nav && sQ.nav) curr.nav = sQ.nav;
+            if (!curr.name && sQ.name) curr.name = sQ.name;
           }
         }
       });

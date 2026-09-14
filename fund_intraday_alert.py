@@ -297,6 +297,27 @@ def save_state(state: dict) -> None:
         print(f"[警告] 保存告警状态文件失败: {e}")
 
 
+def export_quotes_snapshot(quotes: dict[str, dict], output_path: str | None = None) -> str:
+    """将最新实时估值快照导出为供 Pages 静态加载的 data/quotes.json。"""
+    if output_path is None:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        output_path = os.path.join(base_dir, "fund-alert-pages", "data", "quotes.json")
+
+    try:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        payload = {
+            "updated_at": datetime.now(CST).strftime("%Y-%m-%d %H:%M:%S"),
+            "source": "cloud-actions",
+            "quotes": quotes,
+        }
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"[行情快照] 已导出 {len(quotes)} 只基金估值至 {output_path}")
+    except Exception as e:
+        print(f"[警告] 导出行情快照失败: {e}")
+    return output_path
+
+
 # ── Bark 推送 ─────────────────────────────────────────
 
 def send_bark_alert(title: str, body: str, url: str | None = None) -> bool:
@@ -389,6 +410,9 @@ def main():
     if not FORCE_CHECK and quotes and not has_today_quote:
         print(f"[休市] 基金实时估值时间未更新为今日 ({today_str})，判定为非交易日或未开市，退出。")
         return
+
+    # 导出实时行情快照供前端 Pages 看板容灾直读
+    export_quotes_snapshot(quotes)
 
     # 清理非当天的历史状态
     state = {k: v for k, v in state.items() if v.get("date") == today_str}

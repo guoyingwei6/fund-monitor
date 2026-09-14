@@ -12,6 +12,7 @@ from fund_intraday_alert import (
     send_bark_alert,
     load_state,
     save_state,
+    export_quotes_snapshot,
     fetch_sina_quotes,
     fetch_realtime_quotes,
 )
@@ -165,6 +166,29 @@ class FundIntradayAlertTest(unittest.TestCase):
         self.assertEqual(q["gztime"], "2026-09-14 10:15:00")
         self.assertEqual(q["nav"], 1.2319)
         self.assertEqual(q["nav_date"], "2026-09-11")
+
+    def test_export_quotes_snapshot(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+            tmp_path = tf.name
+
+        try:
+            sample = {
+                "022459": {
+                    "code": "022459",
+                    "name": "易方达中证A500ETF联接A",
+                    "est_rate": -0.25,
+                    "est_nav": 1.2288,
+                }
+            }
+            export_quotes_snapshot(sample, tmp_path)
+            with open(tmp_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            self.assertIn("quotes", payload)
+            self.assertEqual(payload["quotes"]["022459"]["est_rate"], -0.25)
+            self.assertEqual(payload["source"], "cloud-actions")
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
 
 if __name__ == "__main__":
