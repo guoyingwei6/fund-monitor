@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
+<meta name="referrer" content="no-referrer">
 <title>盘中基金提醒</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23191d23'/%3E%3Cpath d='M16 23a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zM9 18h14l-1.5-2V11a5.5 5.5 0 0 0-11 0v5L9 18z' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='23.5' cy='8.5' r='3.5' fill='%23d13c30'/%3E%3C/svg%3E">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -619,7 +620,7 @@
     renderStats();
   }
 
-  /* 从 URL 参数注入配置（支持注入 Bark 地址或一键重置默认持仓） */
+  /* 从 URL 参数注入配置（支持一键重置默认持仓） */
   function absorbUrlParams() {
     var params = new URLSearchParams(location.search);
     if (!params.has("defaults") && !params.has("reset")) {
@@ -653,18 +654,22 @@
   }
 
   /* ── 时间 ─────────────────────────────────────── */
+  var WEEKDAY_MAP = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   function shanghaiNow() {
-    var parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+    var parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+      weekday: "short"
     }).formatToParts(new Date());
     var map = {};
     parts.forEach(function (p) { map[p.type] = p.value; });
+    var weekday = WEEKDAY_MAP[map.weekday];
     return {
       date: map.year + "-" + map.month + "-" + map.day,
       time: map.hour + ":" + map.minute + ":" + map.second,
       clock: map.hour + ":" + map.minute,
-      weekday: new Date(map.year + "-" + map.month + "-" + map.day + "T00:00:00+08:00").getUTCDay()
+      weekday: weekday != null ? weekday : 1
     };
   }
   function minutesOf(clock) {
@@ -687,6 +692,54 @@
   }
 
   /* ── 数据 ─────────────────────────────────────── */
+  function fetchSinaQuotes(codes) {
+    return new Promise(function (resolve) {
+      var valid = codes.filter(function (c) { return /^\d{6}$/.test(c); });
+      if (!valid.length) return resolve({});
+      var script = document.createElement("script");
+      script.src = "https://hq.sinajs.cn/list=" + valid.map(function (c) { return "fu_" + c; }).join(",");
+      script.referrerPolicy = "no-referrer";
+      var timer = setTimeout(function () {
+        cleanup();
+        resolve({});
+      }, 5000);
+      function cleanup() {
+        clearTimeout(timer);
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+      script.onload = function () {
+        var result = {};
+        valid.forEach(function (code) {
+          var raw = window["hq_str_fu_" + code];
+          if (raw && typeof raw === "string") {
+            var parts = raw.split(",");
+            if (parts.length >= 6) {
+              var estNav = Number(parts[3]);
+              var estRate = Number(parts[5]);
+              var nav = Number(parts[1]);
+              result[code] = {
+                code: code,
+                name: parts[0] || "",
+                estNav: isFinite(estNav) && estNav > 0 ? estNav : null,
+                estChangeRate: isFinite(estRate) ? estRate : null,
+                quoteTime: parts[4] || "",
+                nav: isFinite(nav) && nav > 0 ? nav : null
+              };
+            }
+          }
+          try { delete window["hq_str_fu_" + code]; } catch (e) {}
+        });
+        cleanup();
+        resolve(result);
+      };
+      script.onerror = function () {
+        cleanup();
+        resolve({});
+      };
+      document.head.appendChild(script);
+    });
+  }
+
   function fetchQuotes(codes) {
     var valid = codes.filter(function (code) { return /^\d{6}$/.test(code); });
     if (!valid.length) return Promise.resolve([]);
@@ -695,15 +748,13 @@
       Sort: "", SortColumn: "", IsShowSE: "false", P: "F",
       deviceid: "fund-alert-pages", plat: "Iphone", product: "EFund", version: "6.2.8"
     });
-    return fetch("https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?" + params.toString())
+    var eastmoneyPromise = fetch("https://fundmobapi.eastmoney.com/FundMNewApi/FundMNFInfo?" + params.toString())
       .then(function (res) {
         if (!res.ok) throw new Error("估值接口 HTTP " + res.status);
         return res.json();
       })
       .then(function (data) {
-        if (!data || data.Success === false || !Array.isArray(data.Datas)) {
-          throw new Error((data && data.ErrMsg) || "估值接口返回异常");
-        }
+        if (!data || data.Success === false || !Array.isArray(data.Datas)) return [];
         return data.Datas.map(function (item) {
           var rawTime = String(item.GZTIME || "");
           var chunks = rawTime.split(" ");
@@ -721,7 +772,64 @@
             navDate: String(item.PDATE || "")
           };
         });
+      })
+      .catch(function () {
+        return [];
       });
+
+    var sinaPromise = fetchSinaQuotes(valid);
+
+    return Promise.all([eastmoneyPromise, sinaPromise]).then(function (results) {
+      var eastmoneyList = results[0] || [];
+      var sinaMap = results[1] || {};
+      var mergedMap = {};
+
+      eastmoneyList.forEach(function (q) {
+        mergedMap[q.code] = q;
+      });
+
+      valid.forEach(function (code) {
+        var sinaQ = sinaMap[code];
+        if (!mergedMap[code]) {
+          if (sinaQ) {
+            var chunks = (sinaQ.quoteTime || "").split(" ");
+            mergedMap[code] = {
+              code: code,
+              name: sinaQ.name || "",
+              estNav: sinaQ.estNav,
+              estChangeRate: sinaQ.estChangeRate,
+              quoteDate: chunks[0] || "",
+              quoteClock: chunks[1] || "",
+              quoteTime: sinaQ.quoteTime || "",
+              nav: sinaQ.nav,
+              navChangeRate: null,
+              navDate: ""
+            };
+          }
+        } else {
+          var emQ = mergedMap[code];
+          if (sinaQ) {
+            if (emQ.estChangeRate == null && sinaQ.estChangeRate != null) {
+              emQ.estChangeRate = sinaQ.estChangeRate;
+            }
+            if (emQ.estNav == null && sinaQ.estNav != null) {
+              emQ.estNav = sinaQ.estNav;
+            }
+            if (!emQ.quoteTime && sinaQ.quoteTime) {
+              emQ.quoteTime = sinaQ.quoteTime;
+              var sChunks = sinaQ.quoteTime.split(" ");
+              emQ.quoteDate = sChunks[0] || "";
+              emQ.quoteClock = sChunks[1] || "";
+            }
+            if (!emQ.name && sinaQ.name) {
+              emQ.name = sinaQ.name;
+            }
+          }
+        }
+      });
+
+      return valid.map(function (c) { return mergedMap[c]; }).filter(Boolean);
+    });
   }
 
   /* ── 渲染 ─────────────────────────────────────── */
@@ -747,6 +855,8 @@
     return null;
   }
   function renderRows() {
+    var now = shanghaiNow();
+    var insideTrading = inTradingSession(now);
     el.rows.textContent = "";
     el.fundCount.textContent = config.funds.length + " 只";
     el.rowsEmpty.hidden = config.funds.length > 0;
@@ -874,7 +984,7 @@
       if (rate == null) {
         meterLabel.textContent = "等待行情数据";
       } else if (!isEst) {
-        meterLabel.textContent = "休市中 · 待开盘估值";
+        meterLabel.textContent = insideTrading ? "盘中无估算 · 待收盘净值" : "休市中 · 待开盘估值";
       } else if (trigger) {
         meterLabel.innerHTML = trigger === "up" ? "已触发 <b>涨超</b>阈值" : "已触发 <b>跌超</b>阈值";
       } else if (threshold > 0) {

@@ -6,6 +6,7 @@
 
 import os
 import json
+import re
 import time
 import urllib.parse
 from datetime import datetime, date, timezone, timedelta
@@ -120,9 +121,9 @@ def get_notion_funds() -> list[dict]:
     return funds
 
 
-# ── 东方财富实时估值 ──────────────────────────────────
+# ── 实时估值获取（东财 + 新浪双源互补） ────────────────
 
-def fetch_realtime_quotes(codes: list[str]) -> dict[str, dict]:
+def fetch_eastmoney_quotes(codes: list[str]) -> dict[str, dict]:
     """批量拉取东方财富移动端实时估值。"""
     if not codes:
         return {}
@@ -182,6 +183,91 @@ def fetch_realtime_quotes(codes: list[str]) -> dict[str, dict]:
             "nav": float(item["NAV"]) if item.get("NAV") else None,
             "nav_date": item.get("PDATE", ""),
         }
+    return quotes
+
+
+def fetch_sina_quotes(codes: list[str]) -> dict[str, dict]:
+    """批量拉取新浪财经实时估值接口 (fu_{code})。"""
+    if not codes:
+        return {}
+
+    list_param = ",".join([f"fu_{code}" for code in codes])
+    url = f"https://hq.sinajs.cn/list={list_param}"
+    headers = {
+        "Referer": "https://finance.sina.com.cn",
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.encoding = "gbk"
+        text = resp.text
+    except Exception as e:
+        print(f"[错误] 请求新浪估值接口失败: {e}")
+        return {}
+
+    quotes = {}
+    pattern = re.compile(r'var hq_str_fu_(\d+)="([^"]*)";')
+    for match in pattern.finditer(text):
+        code = match.group(1)
+        raw_val = match.group(2).strip()
+        if not raw_val:
+            continue
+        parts = raw_val.split(",")
+        if len(parts) < 6:
+            continue
+        try:
+            nav = float(parts[1]) if parts[1] else None
+        except ValueError:
+            nav = None
+
+        try:
+            est_nav = float(parts[3]) if parts[3] else None
+        except ValueError:
+            est_nav = None
+
+        try:
+            est_rate = float(parts[5]) if parts[5] else None
+        except ValueError:
+            est_rate = None
+
+        quotes[code] = {
+            "code": code,
+            "name": parts[0].strip(),
+            "est_nav": est_nav,
+            "est_rate": est_rate,
+            "gztime": parts[4].strip(),
+            "nav": nav,
+            "nav_date": "",
+        }
+    return quotes
+
+
+def fetch_realtime_quotes(codes: list[str]) -> dict[str, dict]:
+    """批量拉取实时估值（东财为主，新浪互补容灾）。"""
+    if not codes:
+        return {}
+
+    quotes = fetch_eastmoney_quotes(codes)
+    missing_codes = [
+        c for c in codes
+        if c not in quotes or quotes[c].get("est_rate") is None or not quotes[c].get("gztime")
+    ]
+    if missing_codes:
+        sina_quotes = fetch_sina_quotes(missing_codes)
+        for c, s_q in sina_quotes.items():
+            if c not in quotes:
+                quotes[c] = s_q
+            else:
+                em_q = quotes[c]
+                if em_q.get("est_rate") is None and s_q.get("est_rate") is not None:
+                    em_q["est_rate"] = s_q["est_rate"]
+                if em_q.get("est_nav") is None and s_q.get("est_nav") is not None:
+                    em_q["est_nav"] = s_q["est_nav"]
+                if not em_q.get("gztime") and s_q.get("gztime"):
+                    em_q["gztime"] = s_q["gztime"]
+                if not em_q.get("name") and s_q.get("name"):
+                    em_q["name"] = s_q["name"]
+
     return quotes
 
 

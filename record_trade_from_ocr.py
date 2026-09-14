@@ -86,6 +86,12 @@ class ParsedTrade:
     dedupe_key: str
 
 
+@dataclass
+class DuplicateMatch:
+    page: dict[str, Any]
+    kind: str
+
+
 def notion_post(url: str, payload: dict[str, Any]) -> dict[str, Any]:
     resp = SESSION.post(url, headers=NOTION_HEADERS, json=payload, timeout=30)
     resp.raise_for_status()
@@ -248,25 +254,38 @@ def parse_float(value: str) -> float:
     return float(cleaned)
 
 
-def find_raw_number_after_labels(text: str, labels: list[str]) -> str | None:
-    normalized = normalize_text(text)
+def find_value_after_labels(text: str, labels: list[str]) -> str | None:
     joined = compact(text)
-    number = r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?"
+    number = r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?(?:[ \t]*(?:元|份|%))?"
     for label in labels:
-        patterns = [
-            rf"(?<!待){re.escape(label)}(?:\([^)]*\)|（[^）]*）)?\s*[:：]?\s*(?:CN¥|CNY|¥|人民币)?\s*({number})",
-            rf"(?<!待){re.escape(label)}(?:\([^)]*\)|（[^）]*）)?(?:CN¥|CNY|¥|人民币)?({number})",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, normalized, re.I) or re.search(pattern, joined, re.I)
+        line_pattern = rf"(?<!待){re.escape(label)}(?:\([^)]*\)|（[^）]*）)?[ \t]*[:：]?[ \t]*(?:CN¥|CNY|¥|人民币)?[ \t]*({number})"
+        for line in text_lines(text):
+            match = re.search(line_pattern, line, re.I)
             if match:
                 return match.group(1)
+
+        joined_number = r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?"
+        joined_patterns = [
+            rf"(?<!待){re.escape(label)}(?:\([^)]*\)|（[^）]*）)?(?:CN¥|CNY|¥|人民币)?({joined_number})(?:元|份|%)?",
+        ]
+        for pattern in joined_patterns:
+            match = re.search(pattern, joined, re.I)
+            if match:
+                return match.group(0).replace(label, "", 1)
     stacked = find_stacked_value_after_labels(text, labels)
     if stacked:
-        artifact = re.search(r"([-+]?\d+\.\d{2})1>", stacked)
+        return stacked
+    return None
+
+
+def find_raw_number_after_labels(text: str, labels: list[str]) -> str | None:
+    value = find_value_after_labels(text, labels)
+    if value:
+        artifact = re.search(r"([-+]?\d+\.\d{2})1>", value)
         if artifact:
             return artifact.group(1)
-        match = re.search(number, stacked)
+        number = r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?"
+        match = re.search(number, value)
         if match:
             return match.group(0)
     return None
@@ -275,6 +294,19 @@ def find_raw_number_after_labels(text: str, labels: list[str]) -> str | None:
 def find_number_after_labels(text: str, labels: list[str]) -> float | None:
     raw = find_raw_number_after_labels(text, labels)
     return parse_float(raw) if raw is not None else None
+
+
+def parse_share(value: str) -> float:
+    cleaned = normalize_text(value).replace(",", "").replace("+", "").strip()
+    artifact = re.fullmatch(r"([-+]?\d+\.\d{2})15", cleaned)
+    if artifact:
+        return float(artifact.group(1))
+    return parse_float(value)
+
+
+def find_share_after_labels(text: str, labels: list[str]) -> float | None:
+    raw = find_raw_number_after_labels(text, labels)
+    return parse_share(raw) if raw is not None else None
 
 
 def parse_money(value: str) -> float:
@@ -293,35 +325,58 @@ def find_money_after_labels(text: str, labels: list[str]) -> float | None:
     return parse_money(raw) if raw is not None else None
 
 
-def parse_date(text: str, fallback: str | None = None) -> str:
+def find_fee_after_labels(text: str, labels: list[str]) -> float | None:
+    value = find_value_after_labels(text, labels)
+    if value is None:
+        return None
+    if "份" in normalize_text(value):
+        return None
+    raw = find_raw_number_after_labels(text, labels)
+    return parse_money(raw) if raw is not None else None
+
+
+def normalize_fee(fee: float | None, amount: float) -> float | None:
+    if fee is None:
+        return None
+    if amount and fee > abs(amount) * 0.05:
+        return None
+    return fee
+
+
+def parse_date(text: str, fallback: str | None = None, allow_future: bool = False) -> str:
+    today = datetime.now(CST).date()
     normalized = normalize_text(text)
     match = re.search(r"(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})", normalized)
     if match:
         year, month, day = (int(x) for x in match.groups())
         if 1 <= month <= 12 and 1 <= day <= 31:
-            return f"{year:04d}-{month:02d}-{day:02d}"
+            parsed = datetime(year, month, day, tzinfo=CST).date()
+            if allow_future or parsed <= today:
+                return parsed.isoformat()
 
     match = re.search(r"(?<!\d)(\d{1,2})[-/.月](\d{1,2})(?!\d)", normalized)
     if match:
-        year = datetime.now(CST).year
+        year = today.year
         month, day = (int(x) for x in match.groups())
         if 1 <= month <= 12 and 1 <= day <= 31:
-            return f"{year:04d}-{month:02d}-{day:02d}"
+            parsed = datetime(year, month, day, tzinfo=CST).date()
+            if allow_future or parsed <= today:
+                return parsed.isoformat()
 
-    return fallback or datetime.now(CST).date().isoformat()
+    return fallback or today.isoformat()
 
 
-def find_date_after_labels(text: str, labels: list[str]) -> str | None:
+def find_date_after_labels(text: str, labels: list[str], allow_future: bool = False) -> str | None:
     normalized = normalize_text(text)
     for label in labels:
         pattern = rf"{re.escape(label)}\s*[:：]?\s*(20\d{{2}}[-/.年]\d{{1,2}}[-/.月]\d{{1,2}}(?:\s+\d{{1,2}}:\d{{2}}(?::\d{{2}})?)?)"
         match = re.search(pattern, normalized)
         if match:
-            parsed = parse_date(match.group(1), fallback="")
+            parsed = parse_date(match.group(1), fallback="", allow_future=allow_future)
             return parsed or None
     stacked = find_stacked_value_after_labels(text, labels)
     if stacked:
-        parsed = parse_date(stacked, fallback="")
+        parsed = parse_date(stacked, fallback="", allow_future=allow_future)
         return parsed or None
     return None
 
@@ -436,14 +491,14 @@ def parse_trade(text: str, funds: list[Fund], date_override: str | None = None) 
     elif trade_type in ("卖出", "分红"):
         amount = abs(amount)
 
-    share_snapshot = find_number_after_labels(text, ["持有份额", "当前份额"])
-    share_delta = find_number_after_labels(text, ["确认份额", "成交份额", "买入份额", "卖出份额", "份额变动", "新增份额"])
+    share_snapshot = find_share_after_labels(text, ["持有份额", "当前份额"])
+    share_delta = find_share_after_labels(text, ["确认份额", "成交份额", "买入份额", "卖出份额", "份额变动", "新增份额"])
     if share_delta is not None and trade_type == "卖出":
         share_delta = -abs(share_delta)
 
     nav = find_number_after_labels(text, ["确认净值", "成交净值", "买入净值", "基金净值", "当前净值", "净值"])
     confirmed_amount = None if trade_type == "持仓快照" else find_money_after_labels(text, ["确认金额"])
-    fee = find_money_after_labels(text, ["手续费"])
+    fee = normalize_fee(find_fee_after_labels(text, ["手续费"]), amount)
     confirm_date = find_date_after_labels(text, ["确认时间", "确认日期"])
     order_no = find_order_no(text)
     holding_amount = find_money_after_labels(text, ["持有金额", "持有市值", "持仓金额"])
@@ -488,13 +543,37 @@ def parse_trade(text: str, funds: list[Fund], date_override: str | None = None) 
     return parsed
 
 
-def find_duplicate(dedupe_key: str) -> dict[str, Any] | None:
+def query_first_trade(filter_payload: dict[str, Any]) -> dict[str, Any] | None:
     data = notion_post(
         f"https://api.notion.com/v1/databases/{TRADES_DATABASE_ID}/query",
-        {"filter": {"property": "去重键", "rich_text": {"equals": dedupe_key}}},
+        {"filter": filter_payload},
     )
     results = data.get("results", [])
     return results[0] if results else None
+
+
+def find_duplicate(trade: ParsedTrade) -> DuplicateMatch | None:
+    exact = query_first_trade({"property": "去重键", "rich_text": {"equals": trade.dedupe_key}})
+    if exact:
+        return DuplicateMatch(page=exact, kind="dedupe_key")
+
+    if trade.order_no:
+        by_order_no = query_first_trade({"property": "订单号", "rich_text": {"equals": trade.order_no}})
+        if by_order_no:
+            return DuplicateMatch(page=by_order_no, kind="order_no")
+
+    natural = query_first_trade({
+        "and": [
+            {"property": "基金", "relation": {"contains": trade.fund.page_id}},
+            {"property": "日期", "date": {"equals": trade.date}},
+            {"property": "类型", "select": {"equals": trade.trade_type}},
+            {"property": "金额", "number": {"equals": round(trade.amount, 2)}},
+        ]
+    })
+    if natural:
+        return DuplicateMatch(page=natural, kind="natural_key")
+
+    return None
 
 
 def text_prop(content: str) -> dict[str, Any]:
@@ -564,6 +643,12 @@ def can_update_pending_duplicate(duplicate: dict[str, Any], trade: ParsedTrade) 
         and select_name(duplicate, "状态") == "待确认"
         and trade.status == "已确认"
     )
+
+
+def can_update_duplicate(match: DuplicateMatch, trade: ParsedTrade) -> bool:
+    if can_update_pending_duplicate(match.page, trade):
+        return True
+    return bool(trade.order_no) and match.kind in {"order_no", "natural_key"}
 
 
 def update_trade_page(page_id: str, trade: ParsedTrade, ocr_text: str) -> None:
@@ -646,20 +731,23 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    duplicate = find_duplicate(trade.dedupe_key)
+    duplicate = find_duplicate(trade)
     if duplicate:
-        duplicate_id = duplicate["id"]
-        if not can_update_pending_duplicate(duplicate, trade):
+        duplicate_id = duplicate.page["id"]
+        if not can_update_duplicate(duplicate, trade):
             print(f"[SKIP] 已存在相同去重键，跳过导入: {duplicate_id}")
             return 0
 
         update_trade_page(duplicate_id, trade, ocr_text)
+        should_update_holdings = can_update_pending_duplicate(duplicate.page, trade)
         if args.no_update_holdings:
             updated_shares = False
             print("[SKIP] 按参数跳过持有份额更新")
-        else:
+        elif should_update_holdings:
             updated_shares = update_fund_shares_if_needed(trade)
-        print(f"[OK] 已更新待确认交易流水: {duplicate_id}")
+        else:
+            updated_shares = False
+        print(f"[OK] 已更新交易流水: {duplicate_id}")
         print(f"[OK] 已更新持有份额: {updated_shares}")
         return 0
 

@@ -12,6 +12,8 @@ from fund_intraday_alert import (
     send_bark_alert,
     load_state,
     save_state,
+    fetch_sina_quotes,
+    fetch_realtime_quotes,
 )
 
 
@@ -46,6 +48,13 @@ class FundIntradayAlertTest(unittest.TestCase):
         dt_night = datetime(2026, 9, 11, 18, 0, tzinfo=CST)
         is_trading, reason = is_trading_hours(dt_night)
         self.assertFalse(is_trading)
+
+    def test_is_trading_hours_monday_morning(self) -> None:
+        # 2026-09-14 为周一，10:00 属于正常早盘时段
+        dt_mon = datetime(2026, 9, 14, 10, 0, tzinfo=CST)
+        is_trading, reason = is_trading_hours(dt_mon)
+        self.assertTrue(is_trading)
+        self.assertEqual(reason, "早盘时段")
 
     def test_is_cn_trade_day_weekend(self) -> None:
         sat = date(2026, 9, 12)
@@ -99,6 +108,62 @@ class FundIntradayAlertTest(unittest.TestCase):
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
+
+    @patch("fund_intraday_alert.requests.get")
+    def test_fetch_sina_quotes(self, mock_get: MagicMock) -> None:
+        mock_resp = MagicMock()
+        mock_resp.text = 'var hq_str_fu_022459="易方达中证A500ETF联接A,1.2319,1.2319,1.2273,2026-09-14 10:15:00,-0.37";'
+        mock_get.return_value = mock_resp
+
+        quotes = fetch_sina_quotes(["022459"])
+        self.assertIn("022459", quotes)
+        q = quotes["022459"]
+        self.assertEqual(q["code"], "022459")
+        self.assertEqual(q["name"], "易方达中证A500ETF联接A")
+        self.assertEqual(q["est_rate"], -0.37)
+        self.assertEqual(q["est_nav"], 1.2273)
+        self.assertEqual(q["gztime"], "2026-09-14 10:15:00")
+        self.assertEqual(q["nav"], 1.2319)
+
+    @patch("fund_intraday_alert.fetch_sina_quotes")
+    @patch("fund_intraday_alert.fetch_eastmoney_quotes")
+    def test_fetch_realtime_quotes_fallback_to_sina(
+        self, mock_eastmoney: MagicMock, mock_sina: MagicMock
+    ) -> None:
+        # 东财返回 GSZZL 为空（est_rate 为 None）且 gztime 为空
+        mock_eastmoney.return_value = {
+            "022459": {
+                "code": "022459",
+                "name": "易方达中证A500",
+                "est_nav": None,
+                "est_rate": None,
+                "gztime": "",
+                "nav": 1.2319,
+                "nav_date": "2026-09-11",
+            }
+        }
+        # 新浪返回盘中实时估值与时间
+        mock_sina.return_value = {
+            "022459": {
+                "code": "022459",
+                "name": "易方达中证A500ETF联接A",
+                "est_nav": 1.2273,
+                "est_rate": -0.37,
+                "gztime": "2026-09-14 10:15:00",
+                "nav": 1.2319,
+                "nav_date": "",
+            }
+        }
+
+        quotes = fetch_realtime_quotes(["022459"])
+        self.assertIn("022459", quotes)
+        q = quotes["022459"]
+        # 验证新浪补充了盘中估值与估值时间，同时保留了东财的净值信息
+        self.assertEqual(q["est_rate"], -0.37)
+        self.assertEqual(q["est_nav"], 1.2273)
+        self.assertEqual(q["gztime"], "2026-09-14 10:15:00")
+        self.assertEqual(q["nav"], 1.2319)
+        self.assertEqual(q["nav_date"], "2026-09-11")
 
 
 if __name__ == "__main__":
