@@ -321,7 +321,7 @@ def export_quotes_snapshot(quotes: dict[str, dict], output_path: str | None = No
 # ── Bark 推送 ─────────────────────────────────────────
 
 def send_bark_alert(title: str, body: str, url: str | None = None) -> bool:
-    """向 Bark 推送消息，优先使用 POST JSON，失败回退为 GET。"""
+    """通过Bark标准URL发送完整标题和正文，并检查业务返回码。"""
     if not BARK_URL:
         print("[警告] 未配置 BARK_URL，跳过推送")
         return False
@@ -334,26 +334,10 @@ def send_bark_alert(title: str, body: str, url: str | None = None) -> bool:
         return False
 
     base_url = f"{parsed.scheme}://{parsed.netloc}"
-    post_url = f"{base_url}/push"
-    payload = {
-        "device_key": key,
-        "title": title,
-        "body": body,
-        "group": "基金盘中提醒",
-        "level": "timeSensitive",
-        "icon": "https://www.eastmoney.com/favicon.ico",
-    }
-    if target_url:
-        payload["url"] = target_url
-
-    try:
-        resp = requests.post(post_url, json=payload, timeout=10)
-        if resp.status_code == 200:
-            return True
-    except Exception as e:
-        print(f"[提示] Bark POST 推送失败，尝试 GET 回退: {e}")
-
-    get_endpoint = f"{base_url}/{urllib.parse.quote(key)}/{urllib.parse.quote(title)}/{urllib.parse.quote(body)}"
+    endpoint = (
+        f"{base_url}/{urllib.parse.quote(urllib.parse.unquote(key), safe='')}"
+        f"/{urllib.parse.quote(title, safe='')}/{urllib.parse.quote(body, safe='')}"
+    )
     params = {
         "group": "基金盘中提醒",
         "level": "timeSensitive",
@@ -363,11 +347,22 @@ def send_bark_alert(title: str, body: str, url: str | None = None) -> bool:
         params["url"] = target_url
 
     try:
-        resp = requests.get(get_endpoint, params=params, timeout=10)
-        return resp.status_code == 200
-    except Exception as e:
-        print(f"[错误] 发送 Bark 失败: {e}")
+        resp = requests.get(endpoint, params=params, timeout=10, allow_redirects=False)
+        if resp.status_code != 200:
+            print(f"[错误] Bark推送HTTP状态={resp.status_code}（不自动跟随重定向）")
+            return False
+        result = resp.json()
+        code = result.get("code")
+        if code != 200:
+            print(f"[错误] Bark业务返回码={code!r}")
+            return False
+        print(f"[Bark] HTTP=200，业务码=200，标题{len(title)}字，正文{len(body)}字")
+        return True
+    except (requests.RequestException, ValueError) as e:
+        # 请求异常可能包含设备密钥，仅记录异常类型。
+        print(f"[错误] Bark请求或响应解析失败: {type(e).__name__}")
         return False
+
 
 
 # ── 主逻辑 ─────────────────────────────────────────────
