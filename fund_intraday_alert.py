@@ -372,8 +372,44 @@ def send_bark_alert(title: str, body: str, url: str | None = None) -> bool:
 
 # ── 主逻辑 ─────────────────────────────────────────────
 
+def build_alert_message(name, code, est_rate, threshold, est_nav, quote_time):
+    direction = "up" if est_rate > 0 else "down"
+    rate_str = f"{est_rate:+.2f}%"
+    action_text = ("关注是否符合你的分批止盈或暂停买入计划" if direction == "up"
+                   else "关注是否符合你的分批买入或定投加仓计划")
+    dir_cn = "涨幅" if direction == "up" else "跌幅"
+    excess = abs(est_rate) - threshold
+    title = f"{name} {rate_str}，已达{dir_cn}提醒阈值"
+    body_lines = [
+        f"基金: {name} ({code})",
+        f"当前涨跌幅: {rate_str}",
+        f"触发条件: {dir_cn}≥{threshold:.2f}%",
+        f"超出阈值: {excess:.2f}个百分点" if excess > 0 else "触发情况: 刚好达到阈值",
+        f"操作提示: {action_text}",
+        f"最新估值: {est_nav:.4f}",
+        f"估值时间: {quote_time}",
+    ]
+    is_qdii = any(k in name for k in ("QDII", "纳斯达克", "标普", "美股"))
+    if is_qdii:
+        body_lines.append("特别提醒: 海外标的白天处于休市期，盘中估值为股指期货估算，实际净值以美股收盘为准。")
+    if PAGES_URL:
+        body_lines.append(f"查看详情: {PAGES_URL}")
+    body = "\n".join(body_lines)
+    return title, body
+
+
 def main():
     now = datetime.now(CST)
+    if os.environ.get("TEST_NOTIFICATION", "false").lower() == "true":
+        title, body = build_alert_message(
+            "示例基金", "000000", -1.84, 1.50, 1.2345,
+            now.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        if not send_bark_alert("【测试】" + title, "以下为示例数据，非真实行情。\n" + body):
+            raise RuntimeError("Bark测试通知发送失败")
+        print("[测试] Bark测试通知已提交，请在手机上确认标题和正文。")
+        return
+
     today_str = now.strftime("%Y-%m-%d")
     print(f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] 启动基金盘中监控检测...")
 
@@ -434,13 +470,10 @@ def main():
         threshold = BOND_ALERT_THRESHOLD if layer == "债券层" else STOCK_ALERT_THRESHOLD
 
         direction = None
-        action_text = ""
         if est_rate >= threshold:
             direction = "up"
-            action_text = "考虑适度止盈或暂停买入"
         elif est_rate <= -threshold:
             direction = "down"
-            action_text = "考虑逢低买入或定投加仓"
 
         rate_str = f"+{est_rate:.2f}%" if est_rate > 0 else f"{est_rate:.2f}%"
         print(f"  [>] {name} ({code}): 盘中估值 {rate_str} (阈值 ±{threshold}%)")
@@ -458,20 +491,10 @@ def main():
                 continue
 
         # 触发推送
-        dir_cn = "大涨" if direction == "up" else "大跌"
-        title = f"{name} 盘中{dir_cn} {rate_str}"
-        body_lines = [
-            f"最新估值: {est_nav:.4f} ({rate_str})",
-            f"资产分类: {layer or '基金'}",
-            f"估值时间: {quote.get('gztime', now.strftime('%H:%M'))}",
-            f"操作建议: {action_text}",
-        ]
-        is_qdii = any(k in name for k in ("QDII", "纳斯达克", "标普", "美股"))
-        if is_qdii:
-            body_lines.append("特别提醒: 海外标的白天处于休市期，盘中估值为股指期货估算，实际净值以美股收盘为准。")
-        if PAGES_URL:
-            body_lines.append(f"查看详情: {PAGES_URL}")
-        body = "\n".join(body_lines)
+        title, body = build_alert_message(
+            name, code, est_rate, threshold, est_nav,
+            quote.get("gztime", now.strftime("%H:%M")),
+        )
 
         print(f"      ★ 触发提醒: {title}")
         success = send_bark_alert(title, body)

@@ -7,6 +7,11 @@ on:
     - cron: "*/15 1-3,5-7 * * 1-5"
   workflow_dispatch:
     inputs:
+      test_notification:
+        description: "发送一条示例Bark通知（不检查行情、不更新告警状态）"
+        required: false
+        default: false
+        type: boolean
       force_check:
         description: "是否强制检查（忽略休市/非交易时段判断）"
         required: false
@@ -51,5 +56,6 @@ jobs:
           BARK_URL: ${{ secrets.BARK_URL }}
           STOCK_ALERT_THRESHOLD: "1.5"
           BOND_ALERT_THRESHOLD: "0.5"
+          TEST_NOTIFICATION: ${{ inputs.test_notification || 'false' }}
           FORCE_CHECK: ${{ inputs.force_check || 'false' }}
         run: python fund_intraday_alert.py
