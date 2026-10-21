@@ -276,16 +276,16 @@ python record_trade_from_ocr.py --ocr-file ocr.txt --no-update-holdings
 
 代码入口为 `cloudflare/fund-image/`、`record_trade_from_image.py` 和
 `.github/workflows/record_trade_image.yml`。默认模型为
-`@cf/google/gemma-4-26b-a4b-it`，通过Workers AI绑定调用，可在配置中修改。
-这是新增入口；原有手机快捷指令不会自动切换。
+`@cf/qwen/qwen3.8-27b`，通过Workers AI绑定调用，可在配置中修改。
+Mac上的原快捷指令`FundScreenshotTrade`已原位改为截屏→转PNG→上传原图→显示返回通知；手机端同步和实际运行仍需核验。
 
 **上线状态（2026-10-21，台北时间）：已通过Cloudflare Workers Builds部署。**
 生产入口为`https://fund-image.guoyingwei6.workers.dev`，已连接本仓库的`main`分支。
 构建监听路径为`cloudflare/fund-image/*`及`image_trade.schema.json`。
-首次构建成功，线上接口返回预期JSON；尚未配置运行时`UPLOAD_TOKEN`和`GITHUB_TOKEN`，
-因此识别入口当前返回503（未配置上传口令），尚未验证真实识图或Notion入库。
-`IMPORT_ENABLED`默认是`false`。先使用`/recognize`验证5—10张真实截图，
-逐项检查基金、类型、金额、份额、小数点、日期与确认状态，再启用入库。
+运行时`UPLOAD_TOKEN`和`GITHUB_TOKEN`已配置，`IMPORT_ENABLED`已设为`true`。
+Qwen已通过两张真实截图的字段核对和程序校验；原图经线上`/import`触发Actions后，待确认流水和持仓快照均已写入Notion并读回核对。公开文档不记录实际持仓、交易金额或订单号。
+Mac快捷指令配置已关闭重开核验保存；本次实际入库测试通过HTTP发送原图，尚未实际运行Mac或iPhone快捷指令。
+两张样本通过不代表所有截图均准确；错误仍由校验拒绝，不能把待确认金额算入持有份额。
 识别预览成功不代表字段校验成功或Notion入库成功。
 
 部署步骤（需有对应账户权限；以下命令会发布服务或保存密钥）：
@@ -321,7 +321,7 @@ Notion的既有`OCR原文`字段在新入口中保存结构化JSON，方便追�
 
 入库规则：
 
-- 基金代码/完整名称须唯一匹配，基金A/C类别不能模糊匹配；缺日期不得猜测为当天。
+- 基金代码/完整名称须唯一匹配，基金A/C类别不能模糊匹配；只有月日时按用户约定补北京时间当前年份，完整年份保留，完全缺日期仍拒绝。
 - 数字必须是规范十进制字符串；份额保留至少两位小数、净值至少三位小数。
   多小数点、展示精度不足或识别疑问均拒绝入库。
 - 快照须满足同估值日期下`份额×净值≈持有金额`；买入核对`份额×净值≈支付金额−手续费`，
