@@ -279,7 +279,11 @@ python record_trade_from_ocr.py --ocr-file ocr.txt --no-update-holdings
 `@cf/google/gemma-4-26b-a4b-it`，通过Workers AI绑定调用，可在配置中修改。
 这是新增入口；原有手机快捷指令不会自动切换。
 
-**上线状态：本地实现；尚未部署、未验证真实识图准确率。**
+**上线状态（2026-10-21，台北时间）：已通过Cloudflare Workers Builds部署。**
+生产入口为`https://fund-image.guoyingwei6.workers.dev`，已连接本仓库的`main`分支。
+构建监听路径为`cloudflare/fund-image/*`及`image_trade.schema.json`。
+首次构建成功，线上接口返回预期JSON；尚未配置运行时`UPLOAD_TOKEN`和`GITHUB_TOKEN`，
+因此识别入口当前返回503（未配置上传口令），尚未验证真实识图或Notion入库。
 `IMPORT_ENABLED`默认是`false`。先使用`/recognize`验证5—10张真实截图，
 逐项检查基金、类型、金额、份额、小数点、日期与确认状态，再启用入库。
 识别预览成功不代表字段校验成功或Notion入库成功。
