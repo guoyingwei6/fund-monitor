@@ -8,7 +8,7 @@ issues仅记录妨碍可靠提取的实际歧义、缺失必需信息或冲突�
 fund_code和fund_name必须逐字读取，保留A/C份额类别，不从记忆补代码。
 type根据页面主标题及交易明细判断，忽略广告、导航和买入/卖出按钮。
 资产详情：type=持仓快照，status=已同步，amount=持有金额，shares=持有份额，nav=单位净值（不能取持仓成本）。
-date是持仓金额对应的估值日期，nav_date是该净值日期，两者必须明确同日；只有月日没有年份时填null并说明。
+date是持仓金额对应的估值日期，nav_date是该净值日期，两者必须明确同日；只有月日没有年份时，按用户约定补请求提供的当前年份，不因此写issues；截图有完整年份时保留原值，不覆盖年份。完全没有日期时仍填null并说明。
 待确认金额与已确认持仓混在一起且无法区分时写issues，不能拿账户总额当持有金额。
 交易详情：date=申请/交易日期；已确认时nav_date=确认净值日期，shares=确认份额，nav=确认净值。
 amount=实际支付的申购总额或卖出实际到账净额，fee=明确展示的手续费，单位都是元；金额口径不明写issues。
@@ -73,7 +73,7 @@ export default {
         messages: [
           { role: "system", content: PROMPT },
           { role: "user", content: [
-            { type: "text", text: "读取这张基金截图，输出JSON。" },
+            { type: "text", text: `当前年份（北京时间）：${new Intl.DateTimeFormat("en", { timeZone: "Asia/Shanghai", year: "numeric" }).format(new Date())}。读取这张基金截图，输出JSON。` },
             { type: "image_url", image_url: { url: `data:${mime};base64,${btoa(binary)}` } },
           ] },
         ],
