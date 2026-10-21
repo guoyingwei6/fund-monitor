@@ -8,7 +8,7 @@
     "AI_MODEL": "@cf/qwen/qwen3.8-27b",
     "GITHUB_REPOSITORY": "guoyingwei6/fund-monitor",
     "GITHUB_REF": "main",
-    "IMPORT_ENABLED": "false"
+    "IMPORT_ENABLED": "true"
   },
   "observability": { "enabled": false }
 }
