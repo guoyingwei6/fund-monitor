@@ -48,7 +48,7 @@ SESSION.mount(
             read=3,
             backoff_factor=1,
             status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods=("GET", "POST", "PATCH"),
+            allowed_methods=("GET",),
         )
     ),
 )
@@ -680,6 +680,11 @@ def update_fund_shares_if_needed(trade: ParsedTrade) -> bool:
 
 
 def read_input(args: argparse.Namespace) -> str:
+    if args.event_file:
+        with open(args.event_file, encoding="utf-8") as f:
+            inputs = json.load(f)["inputs"]
+        args.date = inputs.get("trade_date") or None
+        return inputs["ocr_text"]
     if args.ocr_text:
         return args.ocr_text
     if args.ocr_file:
@@ -695,6 +700,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ocr-text")
     parser.add_argument("--ocr-file")
+    parser.add_argument("--event-file")
     parser.add_argument("--date")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-update-holdings", action="store_true")
@@ -708,25 +714,7 @@ def main() -> int:
     funds = load_funds()
     trade = parse_trade(ocr_text, funds, args.date)
 
-    print(json.dumps({
-        "基金": trade.fund.name,
-        "基金代码": trade.fund.code,
-        "类型": trade.trade_type,
-        "状态": trade.status,
-        "日期": trade.date,
-        "金额": trade.amount,
-        "确认金额": trade.confirmed_amount,
-        "份额变动": trade.share_delta,
-        "持有份额快照": trade.share_snapshot,
-        "确认净值": trade.nav,
-        "手续费": trade.fee,
-        "确认日期": trade.confirm_date,
-        "订单号": trade.order_no,
-        "持有金额快照": trade.holding_amount,
-        "持有收益快照": trade.holding_profit,
-        "持有收益率快照": trade.holding_profit_rate,
-        "去重键": trade.dedupe_key,
-    }, ensure_ascii=False, indent=2))
+    print("[OK] OCR文本已解析（未输出个人交易数据）")
 
     if args.dry_run:
         return 0

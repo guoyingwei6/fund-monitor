@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fund_code", "fund_name", "type", "status", "date", "nav_date", "amount", "shares", "nav", "fee", "order_no", "issues"],
+  "properties": {
+    "fund_code": {"type": ["string", "null"], "pattern": "^[0-9]{6}$"},
+    "fund_name": {"type": ["string", "null"], "minLength": 2, "maxLength": 100},
+    "type": {"enum": ["持仓快照", "买入", "卖出", null]},
+    "status": {"enum": ["已同步", "已确认", "待确认", null]},
+    "date": {"type": ["string", "null"], "format": "date"},
+    "nav_date": {"type": ["string", "null"], "format": "date"},
+    "amount": {"$ref": "#/$defs/decimal"},
+    "shares": {"$ref": "#/$defs/decimal"},
+    "nav": {"$ref": "#/$defs/decimal"},
+    "fee": {"$ref": "#/$defs/decimal"},
+    "order_no": {"type": ["string", "null"], "pattern": "^[0-9]{12,64}$"},
+    "issues": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 200}}
+  },
+  "$defs": {
+    "decimal": {"type": ["string", "null"], "pattern": "^(0|[1-9][0-9]{0,11})(\\.[0-9]{1,6})?$"}
+  }
+}

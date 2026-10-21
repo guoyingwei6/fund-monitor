@@ -265,12 +265,82 @@ python record_trade_from_ocr.py --ocr-file ocr.txt
 python record_trade_from_ocr.py --ocr-file ocr.txt --no-update-holdings
 ```
 
-手机快捷指令流程：
+旧版手机快捷指令流程（仍可使用，但不具备下述AI字段校验）：
 
 1. 截取支付宝基金详情或交易详情页面
 2. 用 iOS 快捷指令「从图像中提取文本」
 3. 将 OCR 文本通过 GitHub API 触发 `record_trade.yml`
 4. GitHub Actions 调用脚本解析文本并写入 Notion
+
+### 6. 原图AI识别（Cloudflare → GitHub Actions → Notion）
+
+代码入口为 `cloudflare/fund-image/`、`record_trade_from_image.py` 和
+`.github/workflows/record_trade_image.yml`。默认模型为
+`@cf/google/gemma-4-26b-a4b-it`，通过Workers AI绑定调用，可在配置中修改。
+这是新增入口；原有手机快捷指令不会自动切换。
+
+**上线状态：本地实现；尚未部署、未验证真实识图准确率。**
+`IMPORT_ENABLED`默认是`false`。先使用`/recognize`验证5—10张真实截图，
+逐项检查基金、类型、金额、份额、小数点、日期与确认状态，再启用入库。
+识别预览成功不代表字段校验成功或Notion入库成功。
+
+部署步骤（需有对应账户权限；以下命令会发布服务或保存密钥）：
+
+```bash
+cd cloudflare/fund-image
+npx wrangler@4 secret put UPLOAD_TOKEN
+npx wrangler@4 secret put GITHUB_TOKEN
+npx wrangler@4 deploy
+```
+
+- `UPLOAD_TOKEN`：独立随机上传口令，仅存于Worker Secret和手机快捷指令。
+- `GITHUB_TOKEN`：仅授权`fund-monitor`仓库、Actions写权限的fine-grained token。
+- `AI`绑定已在`wrangler.jsonc`配置；不需要另外申请Gemini密钥。
+- GitHub继续使用已有`NOTION_TOKEN` Secret；新增工作流必须先推送到默认分支。
+- 验证通过后将`wrangler.jsonc`中的`IMPORT_ENABLED`改为`"true"`并重新部署。
+- 使用免费套餐；额度耗尽时调用会失败，不自动切换模型或购买额度。
+
+手机快捷指令修改：
+
+1. 接收一张支付宝资产详情或交易详情截图，保留原图分辨率；每次只处理一只基金。
+2. 去掉「从图像中提取文本」。PNG/JPEG可直接上传，其他格式先转成PNG。
+3. 「获取URL内容」向Worker的`/recognize`发送POST；请求体选**文件**并传入图片。
+4. 请求头添加`Authorization: Bearer 上传口令`以及实际的`Content-Type: image/png`或`image/jpeg`。
+5. 显示响应内容。HTTP 422或`needs_review`须核对原图；其他错误须处理后重试。
+6. 上线后把路径换成`/import`。HTTP 202的`submitted`只表示GitHub已接收；
+   打开响应的`run_url`确认Actions最终成功，失败时查看固定错误提示。
+
+Worker只在请求内处理原图，不存储图片、不将图片上传GitHub，也不打印模型原文。
+结构化字段（含交易订单号）会经GitHub提交给Notion；这不是本地离线处理。
+Actions从事件文件读取字段，避免在step环境变量日志中回显交易数据。
+Notion的既有`OCR原文`字段在新入口中保存结构化JSON，方便追溯。
+
+入库规则：
+
+- 基金代码/完整名称须唯一匹配，基金A/C类别不能模糊匹配；缺日期不得猜测为当天。
+- 数字必须是规范十进制字符串；份额保留至少两位小数、净值至少三位小数。
+  多小数点、展示精度不足或识别疑问均拒绝入库。
+- 快照须满足同估值日期下`份额×净值≈持有金额`；买入核对`份额×净值≈支付金额−手续费`，
+  卖出核对`份额×净值≈到账金额＋手续费`。容差根据展示精度计算，字段不足时明确失败。
+- 交易必须有订单号。待确认交易只记录，确认后更新原流水；交易流水不累加当前持仓。
+  当前持仓只使用核对通过的份额快照绝对覆盖，避免重复补录导致份额累加。
+- 快照与Notion已有记录比较日期；存在同日其他已确认记录或更新记录时拒绝自动覆盖。
+  没有日内时间戳不能判断同日先后，需要人工核对。未记录的交易、手动改动无法靠此检查发现。
+- 同一订单字段冲突时拒绝覆盖。快照记录已创建但持仓更新失败时，Actions失败可见；
+  重试会复用原记录并重新设置绝对份额。两个动作不是数据库事务。
+- 两个导入工作流共用并发组，请逐张上传并等前一笔完成；不要批量连续触发，
+  GitHub并发组的等待任务可能被后来的任务替换。
+
+不连接Notion的字段检查，以及只读核对基金：
+
+```bash
+python record_trade_from_image.py --json-file preview-trade.json --validate-only
+python record_trade_from_image.py --json-file preview-trade.json --dry-run
+```
+
+`preview-trade.json`应保存`/recognize`响应中的`trade`对象。
+`--validate-only`不核对基金库；`--dry-run`会读取Notion，但不检查历史冲突、不写入。
+`--no-update-holdings`用于明确仅记录历史快照，须人工执行。
 
 ---
 

@@ -1,0 +1,13 @@
+{
+  "name": "fund-image",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-20",
+  "ai": { "binding": "AI" },
+  "vars": {
+    "AI_MODEL": "@cf/google/gemma-4-26b-a4b-it",
+    "GITHUB_REPOSITORY": "guoyingwei6/fund-monitor",
+    "GITHUB_REF": "main",
+    "IMPORT_ENABLED": "false"
+  },
+  "observability": { "enabled": false }
+}

@@ -12,6 +12,13 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: read
+
+concurrency:
+  group: fund-notion-trade-import
+  cancel-in-progress: false
+
 jobs:
   record:
     runs-on: ubuntu-latest
@@ -31,10 +38,4 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DATABASE_ID: "25bf49a100364b528fcf8c84077c338a"
           NOTION_TRADES_DATABASE_ID: "b7a9b06a-b7db-43f0-b825-aa8e61af1285"
-          OCR_TEXT: ${{ inputs.ocr_text }}
-        run: |
-          if [ -n "${{ inputs.trade_date }}" ]; then
-            python record_trade_from_ocr.py --date "${{ inputs.trade_date }}"
-          else
-            python record_trade_from_ocr.py
-          fi
+        run: python record_trade_from_ocr.py --event-file "$GITHUB_EVENT_PATH"
